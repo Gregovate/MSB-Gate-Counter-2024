@@ -30,7 +30,7 @@ D23 - MOSI
 #include <Adafruit_SSD1306.h>
 #include "RTClib.h"
 #include "NTPClient.h"
-#include <WiFiClientSecure.h>
+//#include <WiFiClientSecure.h>
 #include <WiFiMulti.h>
 #include "secrets.h"
 #include "time.h"
@@ -101,7 +101,8 @@ int line7 = 53;
 //Create Multiple WIFI Object
 
 WiFiMulti wifiMulti;
-WiFiClientSecure espGateCounter;
+//WiFiClientSecure espGateCounter;
+WiFiClient espGateCounter;
 PubSubClient mqtt_client(espGateCounter);
 
 unsigned long lastMsg = 0;
@@ -124,7 +125,7 @@ const int mqtt_port = mqtt_Port;
 #define MQTT_PUB_TOPIC3  "msb/traffic/exit/count"
 #define MQTT_PUB_TOPIC4  "msb/traffic/exit/inpark"
 #define MQTT_PUB_TOPIC5  "msb/traffic/exit/timeout"
-#define MQTT_PUB_TOPIC6  "msb/traffic/exit/beamSensorState"
+#define MQTT_PUB_TOPIC6  "msb/traffic/exit/debug/beamSensorState"
 // Subscribing Topics (to reset values)
 #define MQTT_SUB_TOPIC0  "msb/traffic/enter/count"
 #define MQTT_SUB_TOPIC1  "msb/traffic/exit/resetcount"
@@ -153,10 +154,10 @@ bool sensorBounceFlag;
 bool carPresentFlag = 0;
 
 bool nocarTimerFlag = 0;
-unsigned long nocarTimerMillis =0;
-bool magSensorState = 0;
-bool beamSensorState = 0;
-bool last_beamSensorState = 1;
+unsigned long beamSensorLowMillis =0;
+//bool magSensorState = 0;
+//bool beamSensorState = 0;
+int last_beamSensorState = 0;
 unsigned long whileMillis; // used for debugging
 unsigned long lastwhileMillis = 0;
 unsigned long beamSensorStateLowMillis; // used for debugging
@@ -649,8 +650,8 @@ void loop() {
 
 
       display.display();
-      magSensorState=digitalRead(magSensorPin);
-      beamSensorState=digitalRead(beamSensorPin);
+      int magSensorState=!digitalRead(magSensorPin);
+      int beamSensorState=!digitalRead(beamSensorPin);
  // @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@     
       // Count Cars Exiting
       // Sensing Vehicle  
@@ -659,12 +660,20 @@ void loop() {
       // Then Beam confirms vehicle is present and then count car after vehicle passes
       // IMPORTANT: Magnotometer will bounce as a single vehicle passes. 
       // ignore if beam sensor bounces for x millis 
-      if ((magSensorState == HIGH) && (beamSensorState == HIGH)) {
+         //Serial.print("detected mag = ");
+         //Serial.print(magSensorState);
+         //Serial.print("\tbeam = ");
+         //Serial.println(beamSensorState);
+      if ((magSensorState == 1) && (beamSensorState == 1)) {
+         Serial.print("detected mag = ");
+         Serial.print(magSensorState);
+         Serial.print("\tbeam = ");
+         Serial.println(beamSensorState);
           lastwhileMillis = 0;
           last_beamSensorStateLowMillis=0;  // Reset beamSensor Timer
-          nocarTimerMillis=0;  
+          beamSensorLowMillis=0;  
           sensorBounceCount = 0; //Reset bounce counter
-          carPresentFlag = 1; // when both detectors are high, set flag car is in detection zone. Only watch Beam Sensor
+          carPresentFlag = 1; // when both detectors are high, set flag car is in detection zone. Then only watch Beam Sensor
           carDetectedMillis = millis(); // Start timer when car entered detection zone
           bounceTimerMillis = 0; // Reset bounceTimer to 0 for bounce check
 //          beamSensorStateLowMillis = millis()-carDetectedMillis;
@@ -680,26 +689,28 @@ void loop() {
           Serial.println("DateTime\t\tWhile\tLHigh\tDiff\tnoCar\tLow Millis\tLast LOW\tDiff\tBounce #\tCurent State\tCar#\tMillis" );  
 
           // When both Sensors are tripped, car is in the detection zone.
-          // figure out when car clears detection zone & beam sensor remains lOW for period of time
+          // magSensor will trip multiple times while car is in detection zone
+          // figure out when car clears detection zone & beam sensor remains LOW for period of time if it bounces
           // Then Reset Car Present Flag to 0
           while (carPresentFlag == 1) {
-             beamSensorState = digitalRead(beamSensorPin); // Beam Sensor is now priority. Ignore magSensor until car clears detection zone
-             currentMillis = millis();
+             beamSensorState = !digitalRead(beamSensorPin); // Beam Sensor is now priority. Ignore magSensor until car clears detection zone
+             currentMillis = millis();   //grab time snapshot
              whileMillis=millis()-carDetectedMillis; //   While car in detection zone, Record relative time while car is passing         
-                       // Beam sensor may bounce while vehicle is in detection zone from high to low to high
+                       // beamSensor may bounce while vehicle is in detection zone from high to HIGH to LOW to HIGH
                        // This loop is used to ignore those bounces
                        // if beam detector state changes from HIGH to LOW for more than ignoreBounceTimeMillis car cleared sensor & increment count
                        // If it remains HIGH car is in detection zone
                        // Added publishing state changes of beamSensor to MQTT 10/13/24
-                       if ((beamSensorState != last_beamSensorState)  && (beamSensorState==HIGH)) {
+                       // If beamSensorState bounces from low to high
+                       if ((beamSensorState != last_beamSensorState)  && (beamSensorState == 1)) {
                                           lastwhileMillis=whileMillis; 
                                           mqtt_client.publish(MQTT_PUB_TOPIC6, String(beamSensorState).c_str());
-                        //                  nocarTimerMillis = millis();       
+                        //                  beamSensorLowMillis = millis();       
                        }
-                       // If beamSensorState bounces low need to start timer to determine how long it remains low bounceTimerMillis < ignoreBounceTimeMillis
-                       if ((beamSensorState != last_beamSensorState)  && (beamSensorState==LOW)) {
+                       // If beamSensorState bounces from High to low start timer to determine how long it remains low bounceTimerMillis < ignoreBounceTimeMillis
+                       if ((beamSensorState != last_beamSensorState)  && (beamSensorState == 0)) {
                           sensorBounceCount ++;  //count the state changes
-                          nocarTimerMillis = millis();  // start timer for no car in detection zone
+                          beamSensorLowMillis = millis();  // start timer when beam sensor is LOW
                           bounceTimerMillis = millis(); // start timer for beamSensor bounce 
                           mqtt_client.publish(MQTT_PUB_TOPIC6, String(beamSensorState).c_str());
                        //}
@@ -723,7 +734,7 @@ void loop() {
                           Serial.print(" \t ");
                           Serial.print(whileMillis-lastwhileMillis);
                           Serial.print(" \t ");
-                          Serial.print(millis()-nocarTimerMillis);  
+                          Serial.print(millis()-beamSensorLowMillis);  
                           Serial.print(" \t ");
                           Serial.print(beamSensorStateLowMillis);                        
                           Serial.print(" \t\t ");   
@@ -753,7 +764,7 @@ void loop() {
                               myFile2.print(", ");
                               myFile2.print(whileMillis-lastwhileMillis);
                               myFile2.print(", ");
-                              myFile2.print(millis()-nocarTimerMillis);
+                              myFile2.print(millis()-beamSensorLowMillis);
                               myFile2.print(", ");
                               myFile2.print(beamSensorStateLowMillis);
                               myFile2.print(", ");
@@ -781,18 +792,20 @@ void loop() {
                        
                            // end of debugging code ********************************************************************************* 
                            //Detector State is bouncing
-                       } // end of if detector state is bouncing check
+                       } // end of if beamSensor bouncing check
 
                       // Dectector is HIGH CHECK CAR HAS CLEARED AND BREAK LOOP #################################################
 
                       //force count & reset if there is an undetectable car present 12/25/23
                       // This section may be removed with new beam sensor 10/13/24                 
                             // Check added 12/21/23 to ensure no car is present for x millis
+
+/*
                             if (beamSensorState==LOW)  {
                                          //lastwhileMillis=whileMillis;  
                               
                               // If no car is present and state does not change, then car has passed
-                              if (((millis() - nocarTimerMillis) >= nocarTimeoutMillis) ) { 
+                              if (((millis() - beamSensorLowMillis) >= nocarTimeoutMillis) ) { 
                                 nocarTimerFlag = 0;
                               } 
                               //Resets if Loop sticks after 10 seconds and does not record a car.
@@ -804,10 +817,10 @@ void loop() {
                               }
 
                             } else {
-                              //nocarTimerMillis = millis();   // Start or Reset Timer when pin goes high
+                              //beamSensorLowMillis = millis();   // Start or Reset Timer when pin goes high
                               nocarTimerFlag = 1;  // change state to active
                               }
-
+*/
 
 
              //allow enough time for a car to pass and then make sure sensor remains low 10/13/24
@@ -815,10 +828,12 @@ void loop() {
              //Main Reset car passing timer
              
                // beamSensor is Low & no car Present OR if Bounce times out then record car
-               if (((beamSensorState == LOW) && (nocarTimerFlag == 0)) || (beamSensorStateLowMillis-last_beamSensorStateLowMillis > ignoreBounceTimeMillis) ) {
+//               if (((beamSensorState == LOW) && (nocarTimerFlag == 0)) || (beamSensorStateLowMillis-last_beamSensorStateLowMillis > ignoreBounceTimeMillis) ) {
+               if (((beamSensorState == 0) ) ) {
+
                   Serial.print(now.toString(buf3));
                   Serial.print(", Millis NoCarTimer = ");
-                  Serial.print(currentMillis-nocarTimerMillis);
+                  Serial.print(currentMillis-beamSensorLowMillis);
                   Serial.print(", Total Millis to pass = ");
                   Serial.println(currentMillis-carDetectedMillis);
                   //Serial.print(", ");
@@ -834,7 +849,7 @@ void loop() {
                       myFile.print(", ");
                       myFile.print (currentMillis-carDetectedMillis) ; 
                       myFile.print(", ");
-                      myFile.print (currentMillis-nocarTimerMillis) ; 
+                      myFile.print (currentMillis-beamSensorLowMillis) ; 
                       myFile.print(", "); 
                       myFile.print (sensorBounceCount) ; 
                       myFile.print(", ");                       
