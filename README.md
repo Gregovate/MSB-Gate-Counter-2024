@@ -1,0 +1,1 @@
+This is version 2 of the gate counter with the added beam sensor and a newly installed magnotometer. Will be removed depricated Hive MQTT and replace with local MQTT server running on Home Assistant with a bridge to workshop.
