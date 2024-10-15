@@ -41,6 +41,7 @@ D23 - MOSI
 #endif
 
 #include <ESPAsyncWebServer.h>
+#include <WebSerial.h>
 #include <ElegantOTAPro.h>
 
 // ******************** VARIBLES *******************
@@ -80,6 +81,21 @@ void onOTAEnd(bool success) {
   // <Add your own code here>
 }
 
+void recvMsg(uint8_t *data, size_t len){
+  WebSerial.println("Received Data...");
+  String d = "";
+  for(int i=0; i < len; i++){
+    d += char(data[i]);
+  }
+  WebSerial.println(d);
+/*  if (d == "ON"){
+    digitalWrite(LED, HIGH);
+  }
+  if (d=="OFF"){
+    digitalWrite(LED, LOW);
+  }
+*/
+}
 // Inser Hive MQTT Cert Below
 
 
