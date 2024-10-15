@@ -4,7 +4,8 @@ Initial Build 12/5/2023 12:15 pm
 Changed time format YYYY-MM-DD hh:mm:ss 12/13/23
 10/10/24 
 10/15/24
-#define FWVersion "24.10.15.1" 
+#define FWVersion "24.10.15.2" 
+Fixed Pin problem. Beam & mag sensor swapped causing the problems
 Purpose: suppliments Car Counter to improve traffic control and determine park capacity
 Counts vehicles as they exit the park
 Connects to WiFi and updates RTC on Boot
@@ -41,15 +42,14 @@ D23 - MOSI
 #endif
 
 #include <ESPAsyncWebServer.h>
-#include <WebSerial.h>
 #include <ElegantOTAPro.h>
 
 // ******************** VARIBLES *******************
-#define magSensorPin 17 // Pin for Magnotometer Sensor
-#define beamSensorPin 16  //Pin for Reflective Sensor
+#define magSensorPin 16 // Pin for Magnotometer Sensor
+#define beamSensorPin 17  //Pin for Reflective Sensor
 #define PIN_SPI_CS 5 // The ESP32 pin GPIO5
 #define MQTT_KEEPALIVE 30
-#define FWVersion "24.10.15.1" // Firmware Version
+#define FWVersion "24.10.15.2" // Firmware Version
 #define OTA_Title "Gate Counter" // OTA Title
 // **************************************************
 
@@ -81,21 +81,6 @@ void onOTAEnd(bool success) {
   // <Add your own code here>
 }
 
-void recvMsg(uint8_t *data, size_t len){
-  WebSerial.println("Received Data...");
-  String d = "";
-  for(int i=0; i < len; i++){
-    d += char(data[i]);
-  }
-  WebSerial.println(d);
-/*  if (d == "ON"){
-    digitalWrite(LED, HIGH);
-  }
-  if (d=="OFF"){
-    digitalWrite(LED, LOW);
-  }
-*/
-}
 // Inser Hive MQTT Cert Below
 
 
