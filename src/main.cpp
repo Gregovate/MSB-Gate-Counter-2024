@@ -48,7 +48,7 @@ D23 - MOSI
 #define magSensorPin 16 // Pin for Magnotometer Sensor
 #define beamSensorPin 17  //Pin for Reflective Sensor
 #define PIN_SPI_CS 5 // The ESP32 pin GPIO5
-#define MQTT_KEEPALIVE 30
+// #define MQTT_KEEPALIVE 30 //removed 10/16/24
 #define FWVersion "24.10.15.2" // Firmware Version
 #define OTA_Title "Gate Counter" // OTA Title
 // **************************************************
@@ -709,7 +709,7 @@ void loop() {
               car present tag to 0 and count the car.
 */
               if ((beamSensorState != LastbeamSensorState)  && (beamSensorState == 0)) {
-                if (sensorBounceCount = 0){
+                if (sensorBounceCount == 0) {
                   // Print header for debugging bounces
                   Serial.println("DateTime\t\tTTPm\tLBSLm\tBSLm\tDiff\tBSS\tBounce#\tCar#" ); 
                 }
