@@ -4,7 +4,7 @@ Initial Build 12/5/2023 12:15 pm
 Changed time format YYYY-MM-DD hh:mm:ss 12/13/23
 10/10/24 
 10/15/24
-#define FWVersion "24.10.15.2" 
+#define FWVersion "24.10.16.1"  Added web serial for debugging
 Fixed Pin problem. Beam & mag sensor swapped causing the problems
 Purpose: suppliments Car Counter to improve traffic control and determine park capacity
 Counts vehicles as they exit the park
@@ -43,13 +43,14 @@ D23 - MOSI
 
 #include <ESPAsyncWebServer.h>
 #include <ElegantOTAPro.h>
+#include <WebSerial.h> // added 2024/10/16
 
 // ******************** VARIBLES *******************
 #define magSensorPin 16 // Pin for Magnotometer Sensor
 #define beamSensorPin 17  //Pin for Reflective Sensor
 #define PIN_SPI_CS 5 // The ESP32 pin GPIO5
-#define MQTT_KEEPALIVE 30
-#define FWVersion "24.10.15.2" // Firmware Version
+//#define MQTT_KEEPALIVE 30  //removed 10/16/24
+#define FWVersion "24.10.16.2" // Firmware Version
 #define OTA_Title "Gate Counter" // OTA Title
 // **************************************************
 
@@ -81,7 +82,25 @@ void onOTAEnd(bool success) {
   // <Add your own code here>
 }
 
-// Inser Hive MQTT Cert Below
+//Webserial
+void recvMsg(uint8_t *data, size_t len){
+  WebSerial.println("Received Data...");
+  String d = "";
+  for(int i=0; i < len; i++){
+    d += char(data[i]);
+  }
+  WebSerial.println(d);
+  /*
+  if (d == "ON"){
+    digitalWrite(LED, HIGH);
+  }
+  if (d=="OFF"){
+    digitalWrite(LED, LOW);
+  }
+  */
+}
+
+// Insert Hive MQTT Cert Below
 
 
 //#include <DS3231.h>
@@ -97,7 +116,7 @@ int line7 = 53;
 //Create Multiple WIFI Object
 
 WiFiMulti wifiMulti;
-//WiFiClientSecure espGateCounter;
+//WiFiClientSecure espGateCounter; // removed 10/11/24- not using https:
 WiFiClient espGateCounter;
 PubSubClient mqtt_client(espGateCounter);
 
@@ -166,7 +185,7 @@ unsigned long nocarTimerMillis = 0; // Time delay to allow car to pass before ch
 //unsigned long highMillis = 0; //Grab the time when the vehicle sensor is high
 unsigned long carDetectedMillis;  // Grab the ime when sensor 1st trips
 unsigned long lastcarDetectedMillis;  // Grab the ime when sensor 1st trips
-
+unsigned long last_print_time = millis(); // Nonblocking webserial 2024/10/16
 
 unsigned long wifi_lastReconnectAttemptMillis;
 unsigned long wifi_connectioncheckMillis = 5000; // check for connection every 5 sec
@@ -277,11 +296,32 @@ void setup_wifi() {
   ElegantOTA.onProgress(onOTAProgress);
   ElegantOTA.onEnd(onOTAEnd);
 
+    /* Webserial Attach Message Callback */
+  WebSerial.onMessage([&](uint8_t *data, size_t len) {
+    Serial.printf("Received %u bytes from WebSerial: ", len);
+    Serial.write(data, len);
+    Serial.println();
+    WebSerial.println("Received Data...");
+    String d = "";
+    for(size_t i=0; i < len; i++){
+      d += char(data[i]);
+    }
+    WebSerial.println(d);
+  });
+
   server.begin();
   Serial.println("HTTP server started");
 
+  // webserial
+  WebSerial.begin(&server);
+
+
+
+
   delay(5000);
 }
+
+
 
 
 void callback(char* topic, byte* payload, unsigned int length) {
@@ -514,6 +554,7 @@ void setup() {
 void loop() {
     //Required for OTA Programming
     ElegantOTA.loop();
+    WebSerial.loop();
 
     // non-blocking WiFi and MQTT Connectivity Checks
     if (wifiMulti.run() == WL_CONNECTED) {
@@ -539,7 +580,14 @@ void loop() {
         wifi_lastReconnectAttemptMillis = 0;
     }
 
-
+  // webserial Print every 2 seconds (non-blocking)
+  if ((unsigned long)(millis() - last_print_time) > 2000) {
+    WebSerial.print(F("IP address: "));
+    WebSerial.println(WiFi.localIP());
+    WebSerial.printf("Uptime: %lums\n", millis());
+    WebSerial.printf("Free heap: %" PRIu32 "\n", ESP.getFreeHeap());
+    last_print_time = millis();
+  }
       
       DateTime now = rtc.now();
       temp=((rtc.getTemperature()*9/5)+32);
@@ -709,7 +757,7 @@ void loop() {
               car present tag to 0 and count the car.
 */
               if ((beamSensorState != LastbeamSensorState)  && (beamSensorState == 0)) {
-                if (sensorBounceCount = 0){
+                if (sensorBounceCount == 0) {
                   // Print header for debugging bounces
                   Serial.println("DateTime\t\tTTPm\tLBSLm\tBSLm\tDiff\tBSS\tBounce#\tCar#" ); 
                 }
