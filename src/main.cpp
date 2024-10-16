@@ -149,13 +149,13 @@ bool sensorBounceFlag;
 
 bool carPresentFlag = 0;  // used to flag when car is in the detection zone
 
-bool nocarTimerFlag = 0;  // used to clear car in detection zone. May not be necessary
+bool NoCarFlag = 0;  // used to clear car in detection zone. May not be necessary
 unsigned long TimeToPassMillis; // time car is in detection Zone
+unsigned long MinDetectionTime = 3000; // Minimum time to pass through beamSensor detection zone
 unsigned long lastTimeToPassMillis = 0;
 unsigned long beamSensorLowMillis = 0; // the time when beam sensor changes low 
 unsigned long lastbeamSensorLowMillis = 0; // last time beam sensor was low for bounce checking when car is in detection zome and beam sensor state changes
 unsigned long beamSensorHighMillis;
-unsigned long lastbeamSensorHighMillis;
 unsigned long bounceTimerMillis;
 
 //########### Bounce Times ######################################################################################
@@ -431,7 +431,7 @@ void setup() {
     Serial.println(F("SensorBounces.csv exists on SD Card."));
     myFile2 = SD.open("/SensorBounces.csv", FILE_APPEND);
     //("DateTime\t\t\tPassing Time\tLast High\tDiff\tLow Millis\tLast Low\tDiff\tBounce #\tCurent State\tCar#" )
-    myFile2.println("Time,Pass Timer,Last High,Diff,No Car Timer,Low Millis,Last Low,Diff,Bounce#,Curent State,Car#,Millis");
+    myFile2.println("DateTime,TimeToPass,Last Beam Low,Beam Low,Diff,Beam State, Bounce#,Car#");
     myFile2.close();
     Serial.println(F("Header Written to SensorBounces.csv"));
   }else{
@@ -675,195 +675,178 @@ void loop() {
           Serial.print("Detector Triggered = ");
           Serial.print(now.toString(buf3));
           Serial.print(" \t ");
-          Serial.print(", magSensorState = ");
-          Serial.print(magSensorState);
           Serial.print(", beamSensorState = ");
           Serial.print(beamSensorState);
-          Serial.print(", millis = ");
-          Serial.print(carDetectedMillis);
+          Serial.print(", TimeToPass = ");
+          Serial.print(millis() - carDetectedMillis);
           Serial.print(", Car Number Being Counted = ");         
           Serial.println (totalDailyCars+1) ;  //add 1 to total daily cars so car being detected is synced
-          Serial.println("DateTime\t\tTTPm\tLBSLm\tBSLm\tDiff\tBounce #\tBSS\tCar#" );  
+
 
           // When both Sensors are tripped, car is in the detection zone.
           // magSensor will trip multiple times while car is in detection zone
           // figure out when car clears detection zone & beam sensor remains LOW for period of time if it bounces
           // Then Reset Car Present Flag to 0
           while (carPresentFlag == 1) {
-             beamSensorState = !digitalRead(beamSensorPin); // BSS-Beam Sensor is now priority. Ignore magSensor until car clears detection zone
-             TimeToPassMillis=millis()-carDetectedMillis; //   TTPm-While car in detection zone, Record time while car is passing         
-                       // beamSensor may bounce while vehicle is in detection zone from high to HIGH to LOW to HIGH
-                       // This loop is used to ignore those bounces
-                       // if beam detector state changes from HIGH to LOW for more than ignoreBounceTimeMillis car cleared sensor & increment count
-                       // If it remains HIGH car is in detection zone
-                       // Added publishing state changes of beamSensor to MQTT 10/13/24
+            beamSensorState = !digitalRead(beamSensorPin); // BSS-Beam Sensor is now priority. Ignore magSensor until car clears detection zone
+            TimeToPassMillis=millis()-carDetectedMillis; //   TTPm-While car in detection zone, Record time while car is passing         
+/*            beamSensor may bounce while vehicle is in detection zone from high to HIGH to LOW to HIGH
+              This loop is used to ignore those bounces
+              if beam detector state changes from HIGH to LOW for more than ignoreBounceTimeMillis car cleared sensor & increment count
+              If it remains HIGH car is in detection zone
+              Added publishing state changes of beamSensor to MQTT 10/13/24
+              If beamSensorState bounces from LOW to HIGH when car is in detection zone CarPresentFlag =1
+ */
+               if ((beamSensorState != LastbeamSensorState) && (beamSensorState == 1)) {
+                lastbeamSensorLowMillis=beamSensorLowMillis;  // LBSLM-Save last time beamSensor was LOW
+                mqtt_client.publish(MQTT_PUB_TOPIC6, String(beamSensorState).c_str());
+               }
 
-                       // If beamSensorState bounces from LOW to HIGH when car is in detection zone CarPresentFlag =1
-                       if ((beamSensorState != LastbeamSensorState) && (beamSensorState == 1)) {
-                          lastbeamSensorLowMillis=beamSensorLowMillis;  // LBSLM-Save last time beamSensor was LOW
-                          mqtt_client.publish(MQTT_PUB_TOPIC6, String(beamSensorState).c_str());
-                       }
-
-                       // If beamSensorState bounces from HIGH to LOW when car is in detection zone (CarPresentFlag = 1)
-                       // The need to determine if it's just a bounce or if the car left the detection zone
-                       // by calculating the time of the bounce from high to low back to high
-                       // if it happens quickly (less than 1 second) then ignore the bounce. If the beamState > a second then reset
-                       // car present tag to 0 and count the car.
-
-                       // start timer to determine how long it remains low bounceTimerMillis < ignoreBounceTimeMillis
-                       if ((beamSensorState != LastbeamSensorState)  && (beamSensorState == 0)) {
-                          sensorBounceCount ++;  // SBC-count the state changes from HIGH to LOW
-                          beamSensorLowMillis = millis()-carDetectedMillis;  // BSLM start timer when beamSensor Bounces LOW
-                          mqtt_client.publish(MQTT_PUB_TOPIC6, String(beamSensorState).c_str());
-
-                          //Record Bounce
-                          DateTime now = rtc.now();
-                          char buf2[] = "YYYY-MM-DD hh:mm:ss";
-                          //Count number of Bounces and check each 4 bounces
-
-                          //Debugging Code Can be removed  **************************************************************************
-                          Serial.print(now.toString(buf2));
-                          Serial.print(" \t ");
-                          Serial.print(TimeToPassMillis);
-                          Serial.print(" \t ");
-                          Serial.print(lastbeamSensorLowMillis); 
-                          Serial.print(" \t ");
-                          Serial.print(beamSensorLowMillis);
-                          Serial.print(" \t ");
-                          Serial.print(beamSensorLowMillis-lastbeamSensorLowMillis);
-                          Serial.print(" \t ");
-                          Serial.print(beamSensorState);                        
-                          Serial.print(" \t ");   
-                          Serial.print(sensorBounceCount);
-                          Serial.print(" \t ");              
-                          Serial.print(beamSensorState);
-                          Serial.print(" \t ");
-                          Serial.print(totalDailyCars+1);
-                          Serial.println();
-                         
-                          //Write Bounce info to file "DateTime\t\tTTPm\tLBSLm\tBSLm\tDiff\tBounce #\tBSS\tCar#" );  
-                          myFile2 = SD.open("/SensorBounces.csv", FILE_APPEND);
-                          if (myFile2) {
-                              myFile2.print(now.toString(buf2));
-                              myFile2.print(", "); 
-                              myFile2.print(TimeToPassMillis);
-                              myFile2.print(", "); 
-                              myFile2.print (lastbeamSensorLowMillis) ; 
-                              myFile2.print(", ");
-                              myFile2.print(beamSensorLowMillis);
-                              myFile2.print(", ");
-                              myFile2.print(beamSensorLowMillis-lastbeamSensorLowMillis);
-                              myFile2.print(", ");
-                              myFile2.print(sensorBounceCount);
-                              myFile2.print(" , ");
-                              myFile2.print(beamSensorState);
-                              myFile2.print(" , ");
-                              myFile2.print(totalDailyCars+1); //Prints this Car millis
-                              myFile2.println();
-                              myFile2.close();
-                          } else {
-                              Serial.print(F("SD Card: Issue encountered while attempting to open the file GateCount.csv"));
-                          }
-                       
-                           // end of debugging code ********************************************************************************* 
-                           // BeamSensorState is bouncing and trying to find out the difference between a bounce or if No Car Present
-                           // since the magSensor is being ignored. The mag sensor will bounce high again while the same
-                           // car is in the detection zone.
-
-                       } // End IF when beamSensorState bounces LOW
-
-                      // if beamSensor is LOW CHECK CAR HAS CLEARED AND BREAK LOOP #################################################
-                      // force count & reset if there is an undetectable car present 12/25/23
-                      // This section may be removed with new beam sensor 10/13/24                 
-                            // Check added 12/21/23 to ensure no car is present for x millis
-
-                      // this section will determine if beam sensor is low not caused by a bounce
-
-
-                            if (beamSensorState == 0)  {
-                                                       
-                              // If no car is present and state does not change, then car has passed
-                              if (((millis() - beamSensorLowMillis) >= nocarTimeoutMillis) ) { 
-                                nocarTimerFlag = 0;
-                              } 
- /*
-                              //Resets if Loop sticks after 10 seconds and does not record a car.
-                              if (millis() - carDetectedMillis > 10000) {
-                                 Serial.println("Timeout! No Car Counted");
-                        mqtt_client.publish(MQTT_PUB_TOPIC5, String(totalDailyCars+1).c_str());
-                                 carPresentFlag=0;
-                                 break;
-                              }
+/*            If beamSensorState bounces from HIGH to LOW when car is in detection zone (CarPresentFlag = 1)
+              We need to determine if it's just a bounce or if the car left the detection zone
+              by calculating the time of the bounce from high to low back to high
+              if it happens quickly (less than 1 second) then ignore the bounce. If the beamState > a second then reset
+              car present tag to 0 and count the car.
 */
-                            } else {
-                              nocarTimerFlag = 1;  // threshold not met to time out clearing car from detection zone
-                              }
-
-
-
-             // allow enough time for a car to pass and then make sure sensor remains low 10/13/24
-             //C onditions that myst be met for a car to be clear and count the car ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-             // Main Reset car passing timer
-             
-               // beamSensor is Low & no car Present OR if Bounce times out then record car not needed if beam sensor does not bounce 
-//               if (((beamSensorState == LOW) && (nocarTimerFlag == 0)) || (beamSensorLowMillis-lastbeamSensorLowMillis > ignoreBounceTimeMillis) ) {
-               if (((beamSensorState == 0) ) && (nocarTimerFlag == 0)) {
-
-                  Serial.print(now.toString(buf3));
-                  Serial.print(", Millis NoCarTimer = ");
-                  Serial.print(millis()-beamSensorLowMillis);
-                  Serial.print(", Time to pass = ");
-                  Serial.println(millis()-carDetectedMillis);
-                  //Serial.print(", ");
-                  //Serial.print(String("DateTime::TIMESTAMP_FULL:\t")+now.timestamp(DateTime::TIMESTAMP_FULL));
-                  //Serial.print(",1,"); 
-                  totalDailyCars ++;     
-
-                  // open file for writing Car Data
-                  //"Date Time,Pass Timer,NoCar Timer,TotalExitCars,CarsInPark,Temp"
-                  myFile = SD.open("/GateCount.csv", FILE_APPEND);
-                  if (myFile) {
-                      myFile.print(now.toString(buf3));
-                      myFile.print(", ");
-                      myFile.print (millis()-carDetectedMillis) ; 
-                      myFile.print(", ");
-                      myFile.print (millis()-beamSensorLowMillis) ; 
-                      myFile.print(", "); 
-                      myFile.print (sensorBounceCount) ; 
-                      myFile.print(", ");                       
-                      myFile.print (totalDailyCars) ; 
-                      myFile.print(", ");
-                      myFile.print(carCounterCars-totalDailyCars);
-                      myFile.print(", ");
-                      myFile.print(temp);
-                              myFile.print(" , ");
-                              myFile.print(lastcarDetectedMillis); //Prints car number being detected
-                              myFile.print(" , ");
-                              myFile.print(carDetectedMillis); //Prints car number being detected
-                      myFile.print(", ");
-                      myFile.print(sensorBounceFlag);
-                      myFile.print(", ");
-                      myFile.println(millis());
-                      myFile.close();
-                      
-                      Serial.print(F("Car Saved to SD Card. Car Number = "));
-                      Serial.print(totalDailyCars);
-                      Serial.print(F(" Cars in Park = "));
-                      Serial.println(carCounterCars-totalDailyCars);  
-                        mqtt_client.publish(MQTT_PUB_TOPIC1, String(temp).c_str());
-                        mqtt_client.publish(MQTT_PUB_TOPIC2, now.toString(buf3));
-                        mqtt_client.publish(MQTT_PUB_TOPIC3, String(totalDailyCars).c_str());
-                        mqtt_client.publish(MQTT_PUB_TOPIC4, String(carCounterCars-totalDailyCars).c_str());
-
-                        //snprintf (msg, MSG_BUFFER_SIZE, "Car #%ld,", totalDailyCars);
-                        //Serial.print("Publish message: ");
-                        //Serial.println(msg);
-                        //mqtt_client.publish("msbGateCount", msg);
-                      //}
+              if ((beamSensorState != LastbeamSensorState)  && (beamSensorState == 0)) {
+                if (sensorBounceCount = 0){
+                  // Print header for debugging bounces
+                  Serial.println("DateTime\t\tTTPm\tLBSLm\tBSLm\tDiff\tBSS\tBounce#\tCar#" ); 
+                }
+                sensorBounceCount ++;  // SBC-count the state changes from HIGH to LOW
+                beamSensorLowMillis = millis()-carDetectedMillis;  // BSLm start timer when beamSensor Bounces LOW
+                //Serial Print Bounce
+                //Debugging Code Can be removed  **************************************************************************
+                DateTime now = rtc.now();
+                char buf2[] = "YYYY-MM-DD hh:mm:ss";
+                Serial.print(now.toString(buf2));
+                Serial.print(" \t ");
+                Serial.print(TimeToPassMillis);
+                Serial.print(" \t ");
+                Serial.print(lastbeamSensorLowMillis); 
+                Serial.print(" \t ");
+                Serial.print(beamSensorLowMillis);
+                Serial.print(" \t ");
+                Serial.print(beamSensorLowMillis-lastbeamSensorLowMillis);
+                Serial.print(" \t ");
+                Serial.print(beamSensorState);                        
+                Serial.print(" \t ");   
+                Serial.print(sensorBounceCount);
+                Serial.print(" \t ");
+                Serial.print(totalDailyCars+1);
+                Serial.println();
+                         
+                //Write Bounce info to file2 "DateTime\t\tTTPm\tLBSLm\tBSLm\tDiff\tBounce #\tBSS\tCar#" );  
+                myFile2 = SD.open("/SensorBounces.csv", FILE_APPEND);
+                if (myFile2) {
+                  myFile2.print(now.toString(buf2));
+                  myFile2.print(", "); 
+                  myFile2.print(TimeToPassMillis);
+                  myFile2.print(", "); 
+                  myFile2.print (lastbeamSensorLowMillis) ; 
+                  myFile2.print(", ");
+                  myFile2.print(beamSensorLowMillis);
+                  myFile2.print(", ");
+                  myFile2.print(beamSensorLowMillis-lastbeamSensorLowMillis);
+                  myFile2.print(", ");
+                  myFile2.print(sensorBounceCount);
+                  myFile2.print(" , ");
+                  myFile2.print(beamSensorState);
+                  myFile2.print(" , ");
+                  myFile2.print(totalDailyCars+1); //Prints this Car millis
+                  myFile2.println();
+                  myFile2.close();
                   } else {
-                      Serial.print(F("SD Card: Issue encountered while attempting to open the file GateCount.csv"));
+                    Serial.print(F("SD Card: Issue encountered while attempting to open the file GateCount.csv"));
                   }
-                  carPresentFlag = 0;
+                } // End IF when beamSensorState bounces LOW
+/*
+                If beamSensor is LOW CHECK CAR HAS CLEARED AND BREAK LOOP #################################################
+                force count & reset if there is an undetectable car present 12/25/23
+                This section may be removed with new beam sensor 10/13/24                 
+                Check added 12/21/23 to ensure no car is present for x millis
+                this section will determine if beam sensor is low not caused by a bounce
+*/
+                if (beamSensorState == 0)  {
+                  // If no car is present and state does not change, then car has passed
+                  if (((TimeToPassMillis) >= MinDetectionTime) ) { 
+                    NoCarFlag = 0; //no car in detection zone
+                  } 
+ /*
+                  //Resets if Loop sticks after 10 seconds and does not record a car.
+                  if (millis() - carDetectedMillis > 10000) {
+                    Serial.println("Timeout! No Car Counted");
+                    mqtt_client.publish(MQTT_PUB_TOPIC5, String(totalDailyCars+1).c_str());
+                    carPresentFlag=0;
+                    break;
+                  }
+*/
+                 } else {
+                  NoCarFlag = 1;  // threshold not met to time out clearing car from detection zone
+                 }
+/*
+             allow enough time for a car to pass and then make sure sensor remains low 10/13/24
+             Conditions that must be met for a car to be clear and count the car ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+             Main Reset car passing timer
+*/             
+             // beamSensor is Low & no car Present OR if Bounce times out then record car not needed if beam sensor does not bounce 
+//           if (((beamSensorState == LOW) && (NoCarFlag == 0)) || (beamSensorLowMillis-lastbeamSensorLowMillis > ignoreBounceTimeMillis) ) {
+             if (((beamSensorState == 0) ) && (NoCarFlag == 0)) {
+               Serial.print(now.toString(buf3));
+               Serial.print(", Millis NoCarTimer = ");
+               Serial.print(millis()-beamSensorLowMillis);
+               Serial.print(", Time to pass = ");
+               Serial.println(millis()-carDetectedMillis);
+               //Serial.print(", ");
+               //Serial.print(String("DateTime::TIMESTAMP_FULL:\t")+now.timestamp(DateTime::TIMESTAMP_FULL));
+               //Serial.print(",1,"); 
+               totalDailyCars ++;     
+               // open file for writing Car Data
+               //"Date Time,Pass Timer,NoCar Timer,TotalExitCars,CarsInPark,Temp"
+               myFile = SD.open("/GateCount.csv", FILE_APPEND);
+               if (myFile) {
+                 myFile.print(now.toString(buf3));
+                 myFile.print(", ");
+                 myFile.print (millis()-carDetectedMillis) ; 
+                 myFile.print(", ");
+                 myFile.print (millis()-beamSensorLowMillis) ; 
+                 myFile.print(", "); 
+                 myFile.print (sensorBounceCount) ; 
+                 myFile.print(", ");                       
+                 myFile.print (totalDailyCars) ; 
+                 myFile.print(", ");
+                 myFile.print(carCounterCars-totalDailyCars);
+                 myFile.print(", ");
+                 myFile.print(temp);
+                 myFile.print(" , ");
+                 myFile.print(lastcarDetectedMillis); //Prints car number being detected
+                 myFile.print(" , ");
+                 myFile.print(carDetectedMillis); //Prints car number being detected
+                 myFile.print(", ");
+                 myFile.print(sensorBounceFlag);
+                 myFile.print(", ");
+                 myFile.println(millis());
+                 myFile.close();
+                      
+                 Serial.print(F("Car Saved to SD Card. Car Number = "));
+                 Serial.print(totalDailyCars);
+                 Serial.print(F(" Cars in Park = "));
+                 Serial.println(carCounterCars-totalDailyCars);  
+                 mqtt_client.publish(MQTT_PUB_TOPIC1, String(temp).c_str());
+                 mqtt_client.publish(MQTT_PUB_TOPIC2, now.toString(buf3));
+                 mqtt_client.publish(MQTT_PUB_TOPIC3, String(totalDailyCars).c_str());
+                 mqtt_client.publish(MQTT_PUB_TOPIC4, String(carCounterCars-totalDailyCars).c_str());
+
+                 //snprintf (msg, MSG_BUFFER_SIZE, "Car #%ld,", totalDailyCars);
+                 //Serial.print("Publish message: ");
+                 //Serial.println(msg);
+                 //mqtt_client.publish("msbGateCount", msg);
+                 //}
+               } else {
+                 Serial.print(F("SD Card: Issue encountered while attempting to open the file GateCount.csv"));
+               }
+                  //Break while loop
+                  carPresentFlag = 0;  //Reset Flag
                   sensorBounceFlag = 0;
                   TimeToPassMillis = 0;
                   lastcarDetectedMillis=carDetectedMillis;
@@ -871,13 +854,10 @@ void loop() {
 
              LastbeamSensorState=beamSensorState;
              lastbeamSensorLowMillis=beamSensorLowMillis;
-             lastbeamSensorHighMillis=beamSensorHighMillis;
-
-
-             //sensorBounceCount =0;
-            
+               
            } // end of Car in detection zone (while loop)
-      } // Start looking for next HIGH on Vehicle sensor
 
-      //loop forever looking for car and update time and counts
+      } // Start looking for next time both beamSensor & magSesnor HIGH at same time
+
+//loop forever looking for car and update time and counts
 }
