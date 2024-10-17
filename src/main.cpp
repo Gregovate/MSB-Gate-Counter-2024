@@ -122,6 +122,7 @@ const int mqtt_port = mqtt_Port;
 #define MQTT_PUB_TOPIC4  "msb/traffic/exit/inpark"
 #define MQTT_PUB_TOPIC5  "msb/traffic/exit/debug/timeout"
 #define MQTT_PUB_TOPIC6  "msb/traffic/exit/debug/beamSensorState"
+#define MQTT_PUB_TOPIC7  "msb/traffic/exit/temp"
 // Subscribing Topics (to reset values)
 #define MQTT_SUB_TOPIC0  "msb/traffic/enter/count"
 #define MQTT_SUB_TOPIC1  "msb/traffic/exit/resetcount"
@@ -169,7 +170,7 @@ unsigned long lastcarDetectedMillis;  // Grab the ime when sensor 1st trips
 unsigned long wifi_lastReconnectAttemptMillis;
 unsigned long wifi_connectioncheckMillis = 5000; // check for connection every 5 sec
 unsigned long mqtt_lastReconnectAttemptMillis;
-unsigned long mqtt_connectionCheckMillis = 5000;
+unsigned long MQTTKeepAlive = 30000;  //MQTT KeepAlive
 unsigned long nowwifi;
 unsigned long nowmqtt;
 
@@ -284,6 +285,7 @@ void MQTTreconnect() {
       Serial.println("Waiting for Car");
       // Once connected, publish an announcement…
       mqtt_client.publish(MQTT_PUB_TOPIC0, "Hello from Gate Counter!");
+      mqtt_client.publish(MQTT_PUB_TOPIC1, String(temp).c_str());
       // … and resubscribe
       mqtt_client.subscribe(MQTT_PUB_TOPIC0);
 
@@ -483,16 +485,24 @@ void loop() {
 //      server.handleClient();E
     ElegantOTA.loop();
 
+      DateTime now = rtc.now();
+      temp=((rtc.getTemperature()*9/5)+32);
+      //Reset Gate Counter at 5:00:00 pm 
+        if ((now.hour() == 17) && (now.minute() == 0) && (now.second() == 0)){
+             totalDailyCars = 0;
+         }    
+
     // non-blocking WiFi and MQTT Connectivity Checks
     if (wifiMulti.run() == WL_CONNECTED) {
       // Check for MQTT connection only if wifi is connected
       if (!mqtt_client.connected()){
         nowmqtt=millis();
-        if(nowmqtt - mqtt_lastReconnectAttemptMillis > mqtt_connectionCheckMillis){
+        if(nowmqtt - mqtt_lastReconnectAttemptMillis > MQTTKeepAlive){
           mqtt_lastReconnectAttemptMillis = nowmqtt;
           Serial.println("Attempting MQTT Connection");
           MQTTreconnect();
         }
+          mqtt_client.publish(MQTT_PUB_TOPIC1, String(temp).c_str());
           mqtt_lastReconnectAttemptMillis =0;
       } else {
         //keep MQTT client connected when WiFi is connected
@@ -507,12 +517,7 @@ void loop() {
         wifi_lastReconnectAttemptMillis = 0;
     }
 
-      DateTime now = rtc.now();
-      temp=((rtc.getTemperature()*9/5)+32);
-      //Reset Gate Counter at 5:00:00 pm 
-        if ((now.hour() == 17) && (now.minute() == 0) && (now.second() == 0)){
-             totalDailyCars = 0;
-         }
+
       display.clearDisplay();
       display.setTextSize(1);
       display.setCursor(0, line1);
@@ -613,6 +618,9 @@ void loop() {
       int magSensorState=!digitalRead(magSensorPin);
       int beamSensorState=!digitalRead(beamSensorPin);
       int LastbeamSensorState = 0; // added 2024/10/15 
+
+
+
 // @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@     
       // Sense Vehicle & Count Cars Exiting
       // Both sensors HIGH when vehicle sensed, Normally both normally open (LOW)
