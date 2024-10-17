@@ -4,7 +4,7 @@ Initial Build 12/5/2023 12:15 pm
 Changed time format YYYY-MM-DD hh:mm:ss 12/13/23
 10/10/24 
 10/15/24
-#define FWVersion "24.10.16.4" 
+#define FWVersion "24.10.16.5" 
 Fixed Pin problem. Beam & mag sensor swapped causing the problems
 Purpose: suppliments Car Counter to improve traffic control and determine park capacity
 Counts vehicles as they exit the park
@@ -49,7 +49,7 @@ D23 - MOSI
 #define beamSensorPin 17  //Pin for Reflective Sensor
 #define PIN_SPI_CS 5 // The ESP32 pin GPIO5
 // #define MQTT_KEEPALIVE 30 //removed 10/16/24
-#define FWVersion "24.10.16.4" // Firmware Version
+#define FWVersion "24.10.16.5" // Firmware Version
 #define OTA_Title "Gate Counter" // OTA Title
 // **************************************************
 
