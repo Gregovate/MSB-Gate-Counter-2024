@@ -45,8 +45,8 @@ D23 - MOSI
 #include <ElegantOTAPro.h>
 
 // ******************** VARIBLES *******************
-#define magSensorPin 16 // Pin for Magnotometer Sensor
-#define beamSensorPin 17  //Pin for Reflective Sensor
+#define magSensorPin 32 // Pin for Magnotometer Sensor
+#define beamSensorPin 33  //Pin for Reflective Sensor
 #define PIN_SPI_CS 5 // The ESP32 pin GPIO5
 // #define MQTT_KEEPALIVE 30 //removed 10/16/24
 #define FWVersion "24.10.16.5" // Firmware Version
