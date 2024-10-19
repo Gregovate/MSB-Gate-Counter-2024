@@ -46,8 +46,8 @@ D23 - MOSI
 
 // ******************** VARIBLES *******************
 #define magSensorPin 32 // Pin for Magnotometer Sensor
-#define beamSensorPin 33  //Pin for Reflective Sensor
-#define PIN_SPI_CS 5 // The ESP32 pin GPIO5
+#define beamSensorPin 33  //Pin for Reflective Scensor
+#define PIN_SPI_CS 5 // SD Card CS GPIO5
 // #define MQTT_KEEPALIVE 30 //removed 10/16/24
 #define FWVersion "24.10.17.2" // Firmware Version
 #define OTA_Title "Gate Counter" // OTA Title
