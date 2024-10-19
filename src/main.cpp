@@ -4,7 +4,7 @@ Initial Build 12/5/2023 12:15 pm
 Changed time format YYYY-MM-DD hh:mm:ss 12/13/23
 10/10/24 
 10/15/24
-#define FWVersion "24.10.16.5" 
+#define FWVersion "24.10.17.2" 
 Fixed Pin problem. Beam & mag sensor swapped causing the problems
 Purpose: suppliments Car Counter to improve traffic control and determine park capacity
 Counts vehicles as they exit the park
@@ -40,7 +40,7 @@ D23 - MOSI
   #include <WiFi.h>
   #include <AsyncTCP.h>
 #endif
-
+#include <ESPmDNS.h>
 #include <ESPAsyncWebServer.h>
 #include <ElegantOTAPro.h>
 
@@ -49,7 +49,7 @@ D23 - MOSI
 #define beamSensorPin 33  //Pin for Reflective Sensor
 #define PIN_SPI_CS 5 // The ESP32 pin GPIO5
 // #define MQTT_KEEPALIVE 30 //removed 10/16/24
-#define FWVersion "24.10.16.5" // Firmware Version
+#define FWVersion "24.10.17.2" // Firmware Version
 #define OTA_Title "Gate Counter" // OTA Title
 // **************************************************
 
@@ -81,7 +81,7 @@ void onOTAEnd(bool success) {
   // <Add your own code here>
 }
 
-// Inser Hive MQTT Cert Below
+
 
 
 //#include <DS3231.h>
@@ -176,6 +176,7 @@ unsigned long nowmqtt;
 
 File myFile; //used to write files to SD Card
 File myFile2;
+
 
 char days[7][4] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
 char months[12][4] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
@@ -477,6 +478,11 @@ void setup() {
     Serial.println(" F");
   display.display();
   ElegantOTA.setAutoReboot(true); // allow reboot after OTA Upload
+
+    if(!MDNS.begin("esp32GateCounter")) {
+     Serial.println("Error starting mDNS");
+     return;
+  }
   delay(3000);
 }
 
