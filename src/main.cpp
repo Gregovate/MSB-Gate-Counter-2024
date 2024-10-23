@@ -52,7 +52,7 @@ D23 - MOSI
 #define beamSensorPin 33  //Pin for Reflective Scensor
 #define PIN_SPI_CS 5 // SD Card CS GPIO5
 // #define MQTT_KEEPALIVE 30 //removed 10/16/24
-#define FWVersion "24.10.23.1" // Firmware Version
+#define FWVersion "24.10.23.2" // Firmware Version
 #define OTA_Title "Gate Counter" // OTA Title
 // **************************************************
 
@@ -153,15 +153,15 @@ unsigned int currentHour;
 unsigned int currentMin;
 unsigned int currentSec;
 unsigned int lastCalDay;
-unsigned int totalDailyCars;
-unsigned int totalShowCars;
+int totalDailyCars;
+int totalShowCars;
 unsigned int daysRunning;
 int inParkCars; // cars in park
-unsigned int carCounterCars =0;
-unsigned int carsHr1 =0; // total cars hour 1
-unsigned int carsHr2 =0; // total cars hour 2
-unsigned int carsHr3 =0; // total cars hour 3
-unsigned int carsHr4 =0; // total cars hour 4
+int carCounterCars =0;
+int carsHr1 =0; // total cars hour 1
+int carsHr2 =0; // total cars hour 2
+int carsHr3 =0; // total cars hour 3
+int carsHr4 =0; // total cars hour 4
 int sensorBounceCount=0;
 int sensorBounceRemainder;
 bool sensorBounceFlag;
@@ -196,13 +196,13 @@ File myFile; //used to write files to SD Card
 File myFile2;
 
 // **********FILE NAMES FOR SD CARD *********
-const String fileName1 = "/Gate/DailyTot.txt"; // /Gate/DailyTot.txt file to store daily counts in the event of a Failure
-const String fileName2 = "/Gate/ShowTot.txt";  // /Gate/ShowTot.txt file to store season total counts
-const String fileName3 = "/Gate/CalDay.txt"; // /Gate/CalDay.txt file to store current day number
-const String fileName4 = "/Gate/RunDays.txt"; // /Gate/RunDays.txt file to store days since open
-const String fileName5 = "/Gate/DailySummary.csv"; // /Gate/DailySummary.csv Stores Daily Totals by Hour and total
-const String fileName6 = "/Gate/GateCount.csv"; // /Gate/GateCount.csv file to store all car counts for season (was MASTER.CSV)
-const String fileName7 = "/Gate/SensorBounces.csv"; // /Gate/SensorBounces.csv file to store all car counts for season (was MASTER.CSV)
+const String fileName1 = "/DailyTot.txt"; // /Gate/DailyTot.txt file to store daily counts in the event of a Failure
+const String fileName2 = "/ShowTot.txt";  // /Gate/ShowTot.txt file to store season total counts
+const String fileName3 = "/CalDay.txt"; // /Gate/CalDay.txt file to store current day number
+const String fileName4 = "/RunDays.txt"; // /Gate/RunDays.txt file to store days since open
+const String fileName5 = "/DailySummary.csv"; // /Gate/DailySummary.csv Stores Daily Totals by Hour and total
+const String fileName6 = "/GateCount.csv"; // /Gate/GateCount.csv file to store all car counts for season (was MASTER.CSV)
+const String fileName7 = "/SensorBounces.csv"; // /Gate/SensorBounces.csv file to store all car counts for season (was MASTER.CSV)
 
 
 
@@ -882,13 +882,21 @@ void loop()
       
       // Convert 24 hour clock to 12 hours
       currentHour = now.hour();
-
-      if (currentHour - 12 > 0) {
-          ampm ="PM";
-          currentHour = now.hour() - 12;
-      }else{
-          currentHour = now.hour();
-          ampm = "AM";
+      if (currentHour <12)
+      {
+               ampm ="AM";
+      }
+      else
+      {
+               ampm ="PM";
+      }
+      if (currentHour > 12 )
+      {
+        currentHour = now.hour() - 12;
+      }
+      else
+      {
+        currentHour = now.hour();
       }
 
       //Display Time
