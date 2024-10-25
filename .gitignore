@@ -5,3 +5,4 @@
 .vscode/ipch
 /include/secrets.h
 /lib/ElegantOTAPro-3-1-4
+/logs

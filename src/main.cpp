@@ -3,6 +3,7 @@ Gate Counter by Greg Liebig gliebig@sheboyganlights.org
 Initial Build 12/5/2023 12:15 pm
 
 Changelog
+24.10.24.1 Fixed Errors in MQTT variables
 24.10.23.3 Fixed File creation errors
 24.10.23.2 Added update/reset check in loop for date changes. Created initSDCard(). 
 24.10.23.1 Updated totals, bug fixes, files ops comparrison to Gate counter  added file ops
@@ -54,7 +55,7 @@ D23 - MOSI
 #define beamSensorPin 33  //Pin for Reflective Scensor
 #define PIN_SPI_CS 5 // SD Card CS GPIO5
 // #define MQTT_KEEPALIVE 30 //removed 10/16/24
-#define FWVersion "24.10.23.3" // Firmware Version
+#define FWVersion "24.10.24.1" // Firmware Version
 #define OTA_Title "Gate Counter" // OTA Title
 // **************************************************
 
@@ -159,7 +160,7 @@ int totalDailyCars;
 int totalShowCars;
 unsigned int daysRunning;
 int inParkCars; // cars in park
-int carCounterCars =0;
+int carCounterCars;
 int carsHr1 =0; // total cars hour 1
 int carsHr2 =0; // total cars hour 2
 int carsHr3 =0; // total cars hour 3
@@ -341,7 +342,7 @@ void MQTTreconnect()
       display.println("MQTT Error");
       display.display();
     }
-  }
+  }  // END While
   mqtt_client.subscribe(MQTT_SUB_TOPIC0);
   mqtt_client.subscribe(MQTT_SUB_TOPIC1);
 }
@@ -685,7 +686,6 @@ void setup()
       // create a new file by opening a new file and immediately close it
       myFile2 = SD.open(fileName1, FILE_WRITE);
       myFile2.close();
-      // recheck if file is created or not & write Header
       }
       else
       {
@@ -698,7 +698,6 @@ void setup()
       // create a new file by opening a new file and immediately close it
       myFile2 = SD.open(fileName2, FILE_WRITE);
       myFile2.close();
-      // recheck if file is created or not & write Header
     }
     else
     {
@@ -712,7 +711,6 @@ void setup()
       // create a new file by opening a new file and immediately close it
       myFile2 = SD.open(fileName3, FILE_WRITE);
       myFile2.close();
-            // recheck if file is created or not & write Header
     }
     else
     {
@@ -726,7 +724,6 @@ void setup()
       // create a new file by opening a new file and immediately close it
       myFile2 = SD.open(fileName4, FILE_WRITE);
       myFile2.close();
-      // recheck if file is created or not & write Header
     }
     else
     {
@@ -758,6 +755,7 @@ void setup()
       myFile.close();
       myFile = SD.open(fileName6, FILE_APPEND);
       // recheck if file is created write Header
+      //HEADER: ("Date Time,Pass Timer,NoCar Timer,Bounces,Car#,Cars In Park,Temp,Last Car Millis, This Car Millis,Bounce Flag,Millis");
       myFile.println("Date Time,Pass Timer,NoCar Timer,Bounces,Car#,Cars In Park,Temp,Last Car Millis, This Car Millis,Bounce Flag,Millis");
       myFile.close();
       Serial.println(F("Header Written to GateCount.csv"));
@@ -1097,7 +1095,7 @@ void loop()
           Serial.print(millis() - carDetectedMillis);
           Serial.print(", Car Number Being Counted = ");         
           Serial.println (totalDailyCars+1) ;  //add 1 to total daily cars so car being detected is synced
-          mqtt_client.publish(MQTT_PUB_TOPIC6, String(beamSensorState).c_str());  // publishes beamSensor State
+          mqtt_client.publish(MQTT_PUB_TOPIC12, String(beamSensorState).c_str());  // publishes beamSensor State
 
 
           // When both Sensors are tripped, car is in the detection zone.
@@ -1116,7 +1114,7 @@ void loop()
  */
                if ((beamSensorState != LastbeamSensorState) && (beamSensorState == 1)) {
                 lastbeamSensorLowMillis=beamSensorLowMillis;  // LBSLM-Save last time beamSensor was LOW
-               // mqtt_client.publish(MQTT_PUB_TOPIC6, String(beamSensorState).c_str());
+               // mqtt_client.publish(MQTT_PUB_TOPIC12, String(beamSensorState).c_str());
                }
 
 /*            If beamSensorState bounces from HIGH to LOW when car is in detection zone (CarPresentFlag = 1)
@@ -1221,9 +1219,10 @@ void loop()
                updateDailyTotal();
                totalShowCars ++;  
                updateShowTotal(); 
+               inParkCars=carCounterCars-totalDailyCars;
                // open file for writing Car Data
-               //"Date Time,Pass Timer,NoCar Timer,TotalExitCars,CarsInPark,TempF"
-               myFile = SD.open("/GateCount.csv", FILE_APPEND);
+               //HEADER: ("Date Time,Pass Timer,NoCar Timer,Bounces,Car#,Cars In Park,Temp,Last Car Millis, This Car Millis,Bounce Flag,Millis");
+               myFile = SD.open(fileName6, FILE_APPEND);
                if (myFile) {
                  myFile.print(now.toString(buf3));
                  myFile.print(", ");
@@ -1235,7 +1234,7 @@ void loop()
                  myFile.print(", ");                       
                  myFile.print (totalDailyCars) ; 
                  myFile.print(", ");
-                 myFile.print(carCounterCars-totalDailyCars);
+                 myFile.print(inParkCars);
                  myFile.print(", ");
                  myFile.print(tempF);
                  myFile.print(" , ");
@@ -1251,12 +1250,12 @@ void loop()
                  Serial.print(F("Car Saved to SD Card. Car Number = "));
                  Serial.print(totalDailyCars);
                  Serial.print(F(" Cars in Park = "));
-                 Serial.println(carCounterCars-totalDailyCars);  
+                 Serial.println(inParkCars);  
                  mqtt_client.publish(MQTT_PUB_TOPIC1, String(tempF).c_str());
                  mqtt_client.publish(MQTT_PUB_TOPIC2, now.toString(buf3));
                  mqtt_client.publish(MQTT_PUB_TOPIC3, String(totalDailyCars).c_str());
-                 mqtt_client.publish(MQTT_PUB_TOPIC4, String(carCounterCars-totalDailyCars).c_str());
-                 mqtt_client.publish(MQTT_PUB_TOPIC6, String(beamSensorState).c_str());
+                 mqtt_client.publish(MQTT_PUB_TOPIC4, String(inParkCars).c_str());
+                 mqtt_client.publish(MQTT_PUB_TOPIC12, String(beamSensorState).c_str());
                  //snprintf (msg, MSG_BUFFER_SIZE, "Car #%ld,", totalDailyCars);
                  //Serial.print("Publish message: ");
                  //Serial.println(msg);
