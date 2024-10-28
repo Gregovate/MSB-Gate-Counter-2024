@@ -3,6 +3,7 @@ Gate Counter by Greg Liebig gliebig@sheboyganlights.org
 Initial Build 12/5/2023 12:15 pm
 
 Changelog
+24.10.28.1 Created proceedure for Updating Car Counts
 24.10.27.1 simplified car detect logic, Formatting Changes
 24.10.24.1 Fixed Errors in MQTT variables
 24.10.23.3 Fixed File creation errors
@@ -56,7 +57,7 @@ D23 - MOSI
 #define beamSensorPin 33  //Pin for Reflective Scensor
 #define PIN_SPI_CS 5 // SD Card CS GPIO5
 // #define MQTT_KEEPALIVE 30 //removed 10/16/24
-#define FWVersion "24.10.27.1" // Firmware Version
+#define FWVersion "24.10.28.1" // Firmware Version
 #define OTA_Title "Gate Counter" // OTA Title
 // **************************************************
 
@@ -558,6 +559,66 @@ void updateDaysRunning()
   }
 }
 
+void updateCarCount(){
+        DateTime now = rtc.now();
+        Serial.print(now.toString(buf3));
+        Serial.print(", Millis NoCarTimer = ");
+        Serial.print(millis()-beamSensorLowMillis);
+        Serial.print(", Time to pass = ");
+        Serial.println(millis()-carDetectedMillis);
+        //Serial.print(", ");
+        //Serial.print(String("DateTime::TIMESTAMP_FULL:\t")+now.timestamp(DateTime::TIMESTAMP_FULL));
+        //Serial.print(",1,"); 
+        totalDailyCars ++;
+        updateDailyTotal(); // Update Daily Total on SD Card to retain numbers with reboot
+        totalShowCars ++;  
+        updateShowTotal();  // Update Show Total on SD Card to retain numbers with reboot 
+        inParkCars=carCounterCars-totalDailyCars;
+        // open file for writing Car Data
+        //HEADER: ("Date Time,Pass Timer,NoCar Timer,Bounces,Car#,Cars In Park,Temp,Last Car Millis, This Car Millis,Bounce Flag,Millis");
+        myFile = SD.open(fileName6, FILE_APPEND);
+        if (myFile) {
+          myFile.print(now.toString(buf3));
+          myFile.print(", ");
+          myFile.print (millis()-carDetectedMillis) ; 
+          myFile.print(", ");
+          myFile.print (millis()-beamSensorLowMillis) ; 
+          myFile.print(", "); 
+          myFile.print (sensorBounceCount) ; 
+          myFile.print(", ");                       
+          myFile.print (totalDailyCars) ; 
+          myFile.print(", ");
+          myFile.print(inParkCars);
+          myFile.print(", ");
+          myFile.print(tempF);
+          myFile.print(" , ");
+          myFile.print(lastcarDetectedMillis); //Prints car number being detected
+          myFile.print(" , ");
+          myFile.print(carDetectedMillis); //Prints car number being detected
+          myFile.print(", ");
+          myFile.print(sensorBounceFlag);
+          myFile.print(", ");
+          myFile.println(millis());
+          myFile.close();
+              
+          Serial.print(F("Car Saved to SD Card. Car Number = "));
+          Serial.print(totalDailyCars);
+          Serial.print(F(" Cars in Park = "));
+          Serial.println(inParkCars);  
+          mqtt_client.publish(MQTT_PUB_TOPIC1, String(tempF).c_str());
+          mqtt_client.publish(MQTT_PUB_TOPIC2, now.toString(buf3));
+          mqtt_client.publish(MQTT_PUB_TOPIC3, String(totalDailyCars).c_str());
+          mqtt_client.publish(MQTT_PUB_TOPIC4, String(inParkCars).c_str());
+          mqtt_client.publish(MQTT_PUB_TOPIC12, String(beamSensorState).c_str());
+          //snprintf (msg, MSG_BUFFER_SIZE, "Car #%ld,", totalDailyCars);
+          //Serial.print("Publish message: ");
+          //Serial.println(msg);
+          //mqtt_client.publish("msbGateCount", msg);
+          //}
+        } else {
+          Serial.print(F("SD Card: Issue encountered while attempting to open the file GateCount.csv"));
+        }
+}
 
 /***** END OF FILE OPS *****/
 
@@ -851,56 +912,58 @@ void loop()
   }    
   
   //Write Totals at 9:20:00 pm. Gate should close at 9 PM. Allow for any cars in line get through
-  if ((now.hour() == 21) && (now.minute() == 20) && (now.second() == 0))  {
-      DateTime now = rtc.now();
-  tempF = ((rtc.getTemperature()*9/5)+32);
-  char buf2[] = "YYYY-MM-DD hh:mm:ss";
-  Serial.print(now.toString(buf2));
-  Serial.print(", Temp = ");
-  Serial.print(tempF);
-  Serial.print(", ");
-//  totalDailyCars ++;     
-//  totalDailyCars;     
-  Serial.print(totalDailyCars) ;  
-  // open file for writing Car Data
-  myFile = SD.open(fileName5, FILE_APPEND);
-  if (myFile) 
+  if ((now.hour() == 21) && (now.minute() == 20) && (now.second() == 0))
   {
-    myFile.print(now.toString(buf2));
-    myFile.print(", ");
-    myFile.print (tempF); 
-    myFile.print(", "); 
-    myFile.print (carsHr1) ; 
-    myFile.print(", ");
-    myFile.println(carsHr2);
-    myFile.print(", ");
-    myFile.println(carsHr3);
-    myFile.print(", ");
-    myFile.println(carsHr4);
-    myFile.print(", ");
-    myFile.println(totalDailyCars);
-    myFile.close();
-    Serial.println(F(" = Daily Summary Recorded SD Card."));
-    // Publish Totals
-    mqtt_client.publish(MQTT_PUB_TOPIC1, String(tempF).c_str());
-    mqtt_client.publish(MQTT_PUB_TOPIC2, now.toString(buf2));
-    mqtt_client.publish(MQTT_PUB_TOPIC3, String(totalDailyCars).c_str());
-    mqtt_client.publish(MQTT_PUB_TOPIC4, String(inParkCars).c_str());
-    mqtt_client.publish(MQTT_PUB_TOPIC5, String(carsHr1).c_str());
-    mqtt_client.publish(MQTT_PUB_TOPIC6, String(carsHr2).c_str());
-    mqtt_client.publish(MQTT_PUB_TOPIC7, String(carsHr3).c_str());
-    mqtt_client.publish(MQTT_PUB_TOPIC8, String(carsHr4).c_str());
-    mqtt_client.publish(MQTT_PUB_TOPIC9, String(totalDailyCars).c_str());
-    mqtt_client.publish(MQTT_PUB_TOPIC10, String(totalShowCars).c_str());
-  }
-  else
-  {
-    Serial.print(F("SD Card: Issue encountered while attempting to open the file CarCount.csv"));
-  }
+    DateTime now = rtc.now();
+    tempF = ((rtc.getTemperature()*9/5)+32);
+    char buf2[] = "YYYY-MM-DD hh:mm:ss";
+    Serial.print(now.toString(buf2));
+    Serial.print(", Temp = ");
+    Serial.print(tempF);
+    Serial.print(", ");
+    //  totalDailyCars ++;     
+    //  totalDailyCars;     
+    Serial.print(totalDailyCars) ;  
+    // open file for writing Car Data
+    myFile = SD.open(fileName5, FILE_APPEND);
+    if (myFile) 
+    {
+      myFile.print(now.toString(buf2));
+      myFile.print(", ");
+      myFile.print (tempF); 
+      myFile.print(", "); 
+      myFile.print (carsHr1) ; 
+      myFile.print(", ");
+      myFile.println(carsHr2);
+      myFile.print(", ");
+      myFile.println(carsHr3);
+      myFile.print(", ");
+      myFile.println(carsHr4);
+      myFile.print(", ");
+      myFile.println(totalDailyCars);
+      myFile.close();
+      Serial.println(F(" = Daily Summary Recorded SD Card."));
+        // Publish Totals
+      mqtt_client.publish(MQTT_PUB_TOPIC1, String(tempF).c_str());
+      mqtt_client.publish(MQTT_PUB_TOPIC2, now.toString(buf2));
+      mqtt_client.publish(MQTT_PUB_TOPIC3, String(totalDailyCars).c_str());
+      mqtt_client.publish(MQTT_PUB_TOPIC4, String(inParkCars).c_str());
+      mqtt_client.publish(MQTT_PUB_TOPIC5, String(carsHr1).c_str());
+      mqtt_client.publish(MQTT_PUB_TOPIC6, String(carsHr2).c_str());
+      mqtt_client.publish(MQTT_PUB_TOPIC7, String(carsHr3).c_str());
+      mqtt_client.publish(MQTT_PUB_TOPIC8, String(carsHr4).c_str());
+      mqtt_client.publish(MQTT_PUB_TOPIC9, String(totalDailyCars).c_str());
+      mqtt_client.publish(MQTT_PUB_TOPIC10, String(totalShowCars).c_str());
+    }
+    else
+    {
+      Serial.print(F("SD Card: Issue encountered while attempting to open the file CarCount.csv"));
+    }
   }
   
   /* Reset Counts at Midnight when controller running 24/7 */
-  if ((now.hour() == 0) && (now.minute() == 0) && (now.second() == 1))  {
+  if ((now.hour() == 0) && (now.minute() == 0) && (now.second() == 1))
+  {
       currentDay = now.day();
       updateCalDay();
       totalDailyCars = 0;
@@ -909,7 +972,8 @@ void loop()
       updateDaysRunning();
   }
   /* OR Reset/Update Counts wwhen Day Changes on reboot getting values from saved data */
-  if (now.day() != lastCalDay)  {
+  if (now.day() != lastCalDay)
+  {
       getCalDay();
       currentDay=now.day();
       updateCalDay();
@@ -938,7 +1002,8 @@ void loop()
          //keep MQTT client connected when WiFi is connected
          mqtt_client.loop();
     }
-  } else {
+  } else
+  {
        // If WiFi if lost, then attemp non blocking WiFi Connection
        if ((currentMillis - start_WiFiMillis) > wifi_connectioncheckMillis)
        {
@@ -977,10 +1042,8 @@ void loop()
     currentHour = now.hour();
   }
 
-  //Display Time
-  //add leading 0 to Hours & display Hours
+  /***** Display Time add leading 0 to Hours & display Hours *****/
   display.setTextSize(1);
-
   if (currentHour < 10){
     display.setCursor(0, line2);
     display.print("0");
@@ -992,8 +1055,7 @@ void loop()
   display.setCursor(14, line2);
   display.println(":");
 
-  //Add leading 0 To Mintes & display Minutes 
-  //  display.setTextSize(1);
+  /***** Add leading 0 To Mintes & display Minutes *****/
   if (now.minute() < 10)
   {  
     display.setCursor(20, line2);
@@ -1007,8 +1069,7 @@ void loop()
   display.setCursor(34, line2);
   display.println(":");
 
-  //Add leading 0 To Seconds & display Seconds
-  //  display.setTextSize(1);
+  /***** Add leading 0 To Seconds & display Seconds *****/
   if (now.second() < 10){
     display.setCursor(41, line2);
     display.print("0");
@@ -1018,18 +1079,17 @@ void loop()
     display.println(now.second(), DEC);   
   }
 
-  // Display AM-PM
+  /***** Display AM-PM *****/
   display.setCursor(56, line2);
   display.println(ampm); 
 
-  // Display Temp
-  // display.setTextSize(1);
+  /***** Display Temp *****/
   display.setCursor(73, line2);
   display.print("TempF: " );
   //display.setCursor(70, 10);
   display.println(tempF, 0);
 
-  // Display Gate Count
+  /***** Display Gate Count *****/
   display.setTextSize(1);
   display.setCursor(0, line3);
   display.print("Exiting: ");
@@ -1060,16 +1120,17 @@ void loop()
   Then Beam confirms vehicle is present and then counts car after vehicle passes
   IMPORTANT: Magnotometer will bounce as a single vehicle passes. */
   
-  // ignore if beam sensor bounces for x millis 
+  /* ignore if beam sensor bounces for x millis 
       //Serial.print("detected mag = ");
       //Serial.print(magSensorState);
       //Serial.print("\tbeam = ");
       //Serial.println(beamSensorState);
+  */
   if ((magSensorState == 1) && (beamSensorState == 1)) 
   {
     sensorBounceCount = 0; //Reset bounce counter
     carPresentFlag = 1; // when both detectors are high, set flag car is in detection zone. Then only watch Beam Sensor
-    carDetectedMillis = millis(); // Freeze time when car entered detection zone (use to calculate TimeToPass in millis)
+    carDetectedMillis = millis(); // Freeze time when car entered detection zone (use to calculate TimeToPass in millis
     beamSensorLowMillis = millis();  // This equals carDetectedMillis before any bouncing and will reset if a bounce happens
     bounceTimerMillis = 0; // Reset bounceTimer to 0 for bounce check
 
@@ -1184,75 +1245,20 @@ void loop()
       // if (((beamSensorState == LOW) && (NoCarFlag == 0)) || (beamSensorLowMillis-lastbeamSensorLowMillis > ignoreBounceTimeMillis) ) {
       if (((beamSensorState == 0) ) && (NoCarFlag == 0))
       {
-        Serial.print(now.toString(buf3));
-        Serial.print(", Millis NoCarTimer = ");
-        Serial.print(millis()-beamSensorLowMillis);
-        Serial.print(", Time to pass = ");
-        Serial.println(millis()-carDetectedMillis);
-        //Serial.print(", ");
-        //Serial.print(String("DateTime::TIMESTAMP_FULL:\t")+now.timestamp(DateTime::TIMESTAMP_FULL));
-        //Serial.print(",1,"); 
-        totalDailyCars ++;
-        updateDailyTotal(); // Update Daily Total on SD Card to retain numbers with reboot
-        totalShowCars ++;  
-        updateShowTotal();  // Update Show Total on SD Card to retain numbers with reboot 
-        inParkCars=carCounterCars-totalDailyCars;
-        // open file for writing Car Data
-        //HEADER: ("Date Time,Pass Timer,NoCar Timer,Bounces,Car#,Cars In Park,Temp,Last Car Millis, This Car Millis,Bounce Flag,Millis");
-        myFile = SD.open(fileName6, FILE_APPEND);
-        if (myFile) {
-          myFile.print(now.toString(buf3));
-          myFile.print(", ");
-          myFile.print (millis()-carDetectedMillis) ; 
-          myFile.print(", ");
-          myFile.print (millis()-beamSensorLowMillis) ; 
-          myFile.print(", "); 
-          myFile.print (sensorBounceCount) ; 
-          myFile.print(", ");                       
-          myFile.print (totalDailyCars) ; 
-          myFile.print(", ");
-          myFile.print(inParkCars);
-          myFile.print(", ");
-          myFile.print(tempF);
-          myFile.print(" , ");
-          myFile.print(lastcarDetectedMillis); //Prints car number being detected
-          myFile.print(" , ");
-          myFile.print(carDetectedMillis); //Prints car number being detected
-          myFile.print(", ");
-          myFile.print(sensorBounceFlag);
-          myFile.print(", ");
-          myFile.println(millis());
-          myFile.close();
-              
-          Serial.print(F("Car Saved to SD Card. Car Number = "));
-          Serial.print(totalDailyCars);
-          Serial.print(F(" Cars in Park = "));
-          Serial.println(inParkCars);  
-          mqtt_client.publish(MQTT_PUB_TOPIC1, String(tempF).c_str());
-          mqtt_client.publish(MQTT_PUB_TOPIC2, now.toString(buf3));
-          mqtt_client.publish(MQTT_PUB_TOPIC3, String(totalDailyCars).c_str());
-          mqtt_client.publish(MQTT_PUB_TOPIC4, String(inParkCars).c_str());
-          mqtt_client.publish(MQTT_PUB_TOPIC12, String(beamSensorState).c_str());
-          //snprintf (msg, MSG_BUFFER_SIZE, "Car #%ld,", totalDailyCars);
-          //Serial.print("Publish message: ");
-          //Serial.println(msg);
-          //mqtt_client.publish("msbGateCount", msg);
-          //}
-        } else {
-          Serial.print(F("SD Card: Issue encountered while attempting to open the file GateCount.csv"));
-        }
+        updateCarCount(); // update Daily Totals and write data to file
         //Break while loop
-        carPresentFlag = 0;  //Reset Flag
-        sensorBounceFlag = 0;
-        lastcarDetectedMillis=carDetectedMillis;
+        carPresentFlag = 0;  //Reset carPresentFlag 
+        sensorBounceFlag = 0; // Reset Bounce Counter
+        lastcarDetectedMillis=carDetectedMillis; // store millis when last car was detected
       }  // end of car passed check
 
-          LastbeamSensorState=beamSensorState;
-          lastbeamSensorLowMillis=beamSensorLowMillis;
+    LastbeamSensorState=beamSensorState;
+    lastbeamSensorLowMillis=beamSensorLowMillis;
             
     } // end of Car in detection zone (while loop)
 
-  } // End if when Beam Sensor and Mag Sensor are not both HIGH
+  } // End if when Beam Sensor and Mag Sensor are both HIGH
+
   //Added to kepp mqtt connection alive 10/11/24 gal
   if  ((currentMillis - start_MqttMillis)> (mqttKeepAlive*1000))
   {
