@@ -3,6 +3,9 @@ Gate Counter by Greg Liebig gliebig@sheboyganlights.org
 Initial Build 12/5/2023 12:15 pm
 
 Changelog
+24.11.6.2 Increased carDetectTime from 500 to 750 millis Sensor bounces with my truck
+24.11.6.1 Changed MQTT Topics for GateCounter rather than exit
+24.11.5.1 Fixed wrong publishing topic for carCounter Counts
 24.11.4.1 Removed Bounce Logic for Beam Sensor and associated vatiables added logic for show totals
 24.10.28.1 Created proceedure for Updating Car Counts
 24.10.27.1 simplified car detect logic, Formatting Changes
@@ -58,9 +61,9 @@ D23 - MOSI
 #define beamSensorPin 33  //Pin for Reflective Scensor
 #define PIN_SPI_CS 5 // SD Card CS GPIO5
 // #define MQTT_KEEPALIVE 30 //removed 10/16/24
-#define FWVersion "24.11.4.1" // Firmware Version
+#define FWVersion "24.11.6.2" // Firmware Version
 #define OTA_Title "Gate Counter" // OTA Title
-unsigned int carDetectMillis = 500; // minimum millis for beamSensor to be broken needed to detect a car
+unsigned int carDetectMillis = 750; // minimum millis for beamSensor to be broken needed to detect a car
 unsigned int showStartTime = 17*60 + 10; // Show (counting) starts at 5:10 pm
 unsigned int showEndTime =  21*60 + 20;  // Show (counting) ends at 9:20 pm 
 // **************************************************
@@ -121,25 +124,26 @@ int wifi_connect_attempts = 5;
 #define THIS_MQTT_CLIENT "espGateCounter" // Look at line 90 and set variable for WiFi Client secure & PubSubCLient 12/23/23
 int mqttKeepAlive = 30; // publish temp every x seconds to keep MQTT client connected
 // Publishing Topics 
+char topic[60];
 char topicBase[60];
 #define topic_base_path  "msb/traffic/GateCounter"
-#define MQTT_PUB_TOPIC0 "msb/traffic/exit/hello"
-#define MQTT_PUB_TOPIC1 "msb/traffic/exit/temp"
-#define MQTT_PUB_TOPIC2 "msb/traffic/exit/time"
-#define MQTT_PUB_TOPIC3 "msb/traffic/exit/count"
-#define MQTT_PUB_TOPIC4 "msb/traffic/exit/inParkCars"
-#define MQTT_PUB_TOPIC5 "msb/traffic/enter/hour1"
-#define MQTT_PUB_TOPIC6 "msb/traffic/enter/hour2"
-#define MQTT_PUB_TOPIC7 "msb/traffic/enter/hour3"
-#define MQTT_PUB_TOPIC8 "msb/traffic/enter/hour4"
-#define MQTT_PUB_TOPIC9 "msb/traffic/enter/DayTot"
-#define MQTT_PUB_TOPIC10 "msb/traffic/enter/ShoTot"
-#define MQTT_PUB_TOPIC11 "msb/traffic/exit/debug/timeout"
-#define MQTT_PUB_TOPIC12 "msb/traffic/exit/debug/beamSensorState"
+#define MQTT_PUB_TOPIC0 "msb/traffic/GateCounter/hello"
+#define MQTT_PUB_TOPIC1 "msb/traffic/GateCounter/temp"
+#define MQTT_PUB_TOPIC2 "msb/traffic/GateCounter/time"
+#define MQTT_PUB_TOPIC3 "msb/traffic/GateCounter/count"
+#define MQTT_PUB_TOPIC4 "msb/traffic/GateCounter/inParkCars"
+#define MQTT_PUB_TOPIC5 "msb/traffic/GateCounter/hour18"
+#define MQTT_PUB_TOPIC6 "msb/traffic/GateCounter/hour19"
+#define MQTT_PUB_TOPIC7 "msb/traffic/GateCounter/hou20"
+#define MQTT_PUB_TOPIC8 "msb/traffic/GateCounter/hour21"
+#define MQTT_PUB_TOPIC9 "msb/traffic/GateCounter/DayTot"
+#define MQTT_PUB_TOPIC10 "msb/traffic/GateCounter/ShoTot"
+#define MQTT_PUB_TOPIC11 "msb/traffic/GateCounter/debug/timeout"
+#define MQTT_PUB_TOPIC12 "msb/traffic/GateCounter/debug/beamSensorState"
 
 // Subscribing Topics (to reset values)
-#define MQTT_SUB_TOPIC0  "msb/traffic/enter/DayTot"
-#define MQTT_SUB_TOPIC1  "msb/traffic/exit/resetcount"
+#define MQTT_SUB_TOPIC0  "msb/traffic/CarCounter/DayTot"
+#define MQTT_SUB_TOPIC1  "msb/traffic/GateCounter/resetcount"
 
 
 //const uint32_t connectTimeoutMs = 10000;
@@ -168,10 +172,10 @@ int totalDailyCars;
 int totalShowCars;
 int inParkCars; // cars in park
 int carCounterCars; // Counts from Car Counter
-int carsHr18 =0; // total cars hour 1
-int carsHr19 =0; // total cars hour 2
-int carsHr20 =0; // total cars hour 3
-int carsHr21 =0; // total cars hour 4
+int carsHr18 =0; // total cars hour 18 (6:00 pm)
+int carsHr19 =0; // total cars hour 19 (7:00 pm)
+int carsHr20 =0; // total cars hour 20 (8:00 pm)
+int carsHr21 =0; // total cars hour 21 (9:20 pm)
 int magSensorState; /* Store state of Mag Sensor*/
 int lastmagSensorState; /* Store Last State of mag Sensor */
 int beamSensorState; /* Store state of Beam Sensor */
@@ -291,6 +295,7 @@ void setup_wifi() {
 
 void callback(char* topic, byte* payload, unsigned int length) {
   Serial.print("Message arrived [");
+  mqttKeepAlive = millis(); // reset keep alive timer when message received
   Serial.print(topic);
   Serial.print("] ");
   for (int i = 0; i < length; i++) {
@@ -879,10 +884,11 @@ void loop()
 {  
    //Required for OTA Programming
    ElegantOTA.loop();
+  
    DateTime now = rtc.now();
    tempF=((rtc.getTemperature()*9/5)+32);
    currentMillis = millis(); 
-
+  
    showTime = (currentTimeMinute >= showStartTime && currentTimeMinute <= showEndTime); // show is running and save counts
 
   /*****IMPORTANT***** Reset Gate Counter at 5:10:00  *****/
