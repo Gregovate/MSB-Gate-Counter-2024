@@ -3,6 +3,7 @@ Gate Counter by Greg Liebig gliebig@sheboyganlights.org
 Initial Build 12/5/2023 12:15 pm
 
 Changelog
+24.11.8.1 testing beamSensorBoune time
 24.11.6.2 Increased carDetectTime from 500 to 750 millis Sensor bounces with my truck
 24.11.6.1 Changed MQTT Topics for GateCounter rather than exit
 24.11.5.1 Fixed wrong publishing topic for carCounter Counts
@@ -61,9 +62,9 @@ D23 - MOSI
 #define beamSensorPin 33  //Pin for Reflective Scensor
 #define PIN_SPI_CS 5 // SD Card CS GPIO5
 // #define MQTT_KEEPALIVE 30 //removed 10/16/24
-#define FWVersion "24.11.6.2" // Firmware Version
+#define FWVersion "24.11.8.1" // Firmware Version
 #define OTA_Title "Gate Counter" // OTA Title
-unsigned int carDetectMillis = 750; // minimum millis for beamSensor to be broken needed to detect a car
+unsigned int carDetectMillis = 500; // minimum millis for beamSensor to be broken needed to detect a car
 unsigned int showStartTime = 17*60 + 10; // Show (counting) starts at 5:10 pm
 unsigned int showEndTime =  21*60 + 20;  // Show (counting) ends at 9:20 pm 
 // **************************************************
@@ -188,7 +189,7 @@ int NoCarFlag = 0;  // used to clear car in detection zone. May not be necessary
 unsigned long TimeToPassMillis; // time car is in detection Zone
 unsigned long beamSensorTripTime; // capture time when beamSensor goes HIGH
 unsigned long magSensorTripTime; //  capture time when magSensor goes HIGH
-
+unsigned long beamSensorBounceTime; // capture time if beam sensor bounces
 unsigned long carDetectedMillis;  // Grab the ime when sensor 1st trips
 unsigned long wifi_connectioncheckMillis = 5000; // check for connection every 5 sec
 unsigned long mqtt_connectionCheckMillis = 20000; // check for connection
@@ -1122,13 +1123,13 @@ void loop()
 
   if ((magSensorState == 1) && (beamSensorState == 1)) 
   {
-    if (millis()-beamSensorTripTime >= carDetectMillis) // if beamsensor is blocked for x millis
-    {
+//    if (millis()-beamSensorTripTime >= carDetectMillis) // if beamsensor is blocked for x millis
+//    {
     carPresentFlag = 1; // when both detectors are high, set flag car is in detection zone. Then only watch Beam Sensor
     carDetectedMillis = beamSensorTripTime; // Freeze time when car entered detection zone (use to calculate TimeToPass in millis
-    }
+//    }
     // DEBUG CODE
-    /*
+    
     DateTime now = rtc.now();
     char buf3[] = "YYYY-MM-DD hh:mm:ss"; //time of day when detector was tripped
     Serial.print("Detector Triggered = ");
@@ -1139,7 +1140,7 @@ void loop()
     Serial.print(millis() - carDetectedMillis);
     Serial.print(", Car Number Being Counted = ");         
     Serial.println (totalDailyCars+1) ;  //add 1 to total daily cars so car being detected is synced
-    */
+    
     mqtt_client.publish(MQTT_PUB_TOPIC12, String(beamSensorState).c_str());  // publishes beamSensor State goes HIGH
 
     /* When both Sensors are tripped, car is in the detection zone. carPresentFlag=1
@@ -1150,7 +1151,11 @@ void loop()
     {
       beamSensorState = !digitalRead(beamSensorPin); // BSS-Beam Sensor is now priority. Ignore magSensor until car clears detection zone
       TimeToPassMillis=millis()-carDetectedMillis; //   TTPm-While car in detection zone, Record time while car is passing         
-      
+    
+      if (beamSensorState != lastbeamSensorState && beamSensorState == 0) // if beam bounces set timer
+      {
+        beamSensorBounceTime = millis(); // double check. may need a way to reset if there is a bounce 11/3/24
+      }
       /* If beamSensor is LOW CHECK CAR HAS CLEARED AND BREAK LOOP ################
       force count & reset if there is an undetectable car present 12/25/23
       This section may be removed with new beam sensor 10/13/24                 
@@ -1158,10 +1163,12 @@ void loop()
       this section will determine if beam sensor is low not caused by a bounce */
       if (beamSensorState == 0)
       {
-
-        TimeToPassMillis=millis()-carDetectedMillis; //   TTPm-While car in detection zone, Record time while car is passing 
-        carPresentFlag = 0;  //Reset carPresentFlag 
-        updateCarCount(); // update Daily Totals and write data to file
+       // if ((millis() - beamSensorBounceTime) > 500)  //Allow for 500 millis bounce
+       // {
+          TimeToPassMillis=millis()-carDetectedMillis; //   TTPm-While car in detection zone, Record time while car is passing 
+          carPresentFlag = 0;  //Reset carPresentFlag 
+          updateCarCount(); // update Daily Totals and write data to file
+      //  }
       }  // end of car passed check
     } // end of Car in detection zone (while loop)
   } /* End if when both Beam Sensors are HIGH */
