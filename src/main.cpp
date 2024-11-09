@@ -3,6 +3,7 @@ Gate Counter by Greg Liebig gliebig@sheboyganlights.org
 Initial Build 12/5/2023 12:15 pm
 
 Changelog
+24.11.9.1 Added mqtt loop to while loop. Working code excluding elegantota update
 24.11.8.1 testing beamSensorBoune time
 24.11.6.2 Increased carDetectTime from 500 to 750 millis Sensor bounces with my truck
 24.11.6.1 Changed MQTT Topics for GateCounter rather than exit
@@ -59,10 +60,10 @@ D23 - MOSI
 
 // ******************** CONSTANTS *******************
 #define magSensorPin 32 // Pin for Magnotometer Sensor
-#define beamSensorPin 33  //Pin for Reflective Scensor
+#define beamSensorPin 33  //Pin for Reflective Beam Sensor
 #define PIN_SPI_CS 5 // SD Card CS GPIO5
 // #define MQTT_KEEPALIVE 30 //removed 10/16/24
-#define FWVersion "24.11.8.1" // Firmware Version
+#define FWVersion "24.11.9.1" // Firmware Version
 #define OTA_Title "Gate Counter" // OTA Title
 unsigned int carDetectMillis = 500; // minimum millis for beamSensor to be broken needed to detect a car
 unsigned int showStartTime = 17*60 + 10; // Show (counting) starts at 5:10 pm
@@ -195,7 +196,6 @@ unsigned long wifi_connectioncheckMillis = 5000; // check for connection every 5
 unsigned long mqtt_connectionCheckMillis = 20000; // check for connection
 unsigned long start_MqttMillis; // for Keep Alive Timer
 unsigned long start_WiFiMillis; // for keep Alive Timer
-unsigned long currentMillis; // loop timer
 
 
 
@@ -494,7 +494,7 @@ void KeepMqttAlive()
 {
    mqtt_client.publish(MQTT_PUB_TOPIC1, String(tempF).c_str());
    Serial.println("Keeping MQTT Alive");
-   start_MqttMillis = currentMillis;
+   start_MqttMillis = millis();
 }
 
 void updateDailyTotal()
@@ -888,7 +888,6 @@ void loop()
   
    DateTime now = rtc.now();
    tempF=((rtc.getTemperature()*9/5)+32);
-   currentMillis = millis(); 
   
    showTime = (currentTimeMinute >= showStartTime && currentTimeMinute <= showEndTime); // show is running and save counts
 
@@ -976,13 +975,13 @@ void loop()
     /* If MQTT is not connected then Attempt MQTT Connection */
     if (!mqtt_client.connected())
     {
-      if (currentMillis - start_MqttMillis > mqtt_connectionCheckMillis)
+      if (millis() - start_MqttMillis > mqtt_connectionCheckMillis)
       {
         Serial.print("hour = ");
         Serial.println(currentHr12);
         Serial.println("Attempting MQTT Connection");
         MQTTreconnect();
-        start_MqttMillis = currentMillis;
+        start_MqttMillis = millis();
       }   
     } else {
          //keep MQTT client connected when WiFi is connected
@@ -991,10 +990,10 @@ void loop()
   } else
   {
        // If WiFi if lost, then attemp non blocking WiFi Connection
-       if ((currentMillis - start_WiFiMillis) > wifi_connectioncheckMillis)
+       if ((millis() - start_WiFiMillis) > wifi_connectioncheckMillis)
        {
           setup_wifi();
-          start_WiFiMillis = currentMillis;
+          start_WiFiMillis = millis();
        }
   }    
 
@@ -1126,7 +1125,7 @@ void loop()
 //    if (millis()-beamSensorTripTime >= carDetectMillis) // if beamsensor is blocked for x millis
 //    {
     carPresentFlag = 1; // when both detectors are high, set flag car is in detection zone. Then only watch Beam Sensor
-    carDetectedMillis = beamSensorTripTime; // Freeze time when car entered detection zone (use to calculate TimeToPass in millis
+    carDetectedMillis = millis(); // Freeze time when car entered detection zone (use to calculate TimeToPass in millis
 //    }
     // DEBUG CODE
     
@@ -1167,9 +1166,11 @@ void loop()
        // {
           TimeToPassMillis=millis()-carDetectedMillis; //   TTPm-While car in detection zone, Record time while car is passing 
           carPresentFlag = 0;  //Reset carPresentFlag 
+          mqtt_client.publish(MQTT_PUB_TOPIC12, String(beamSensorState).c_str());
           updateCarCount(); // update Daily Totals and write data to file
       //  }
       }  // end of car passed check
+      mqtt_client.loop();
     } // end of Car in detection zone (while loop)
   } /* End if when both Beam Sensors are HIGH */
   /***** END OF CAR DETECTION *****/
@@ -1178,7 +1179,7 @@ void loop()
 
 
   //Added to kepp mqtt connection alive 10/11/24 gal
-  if  ((currentMillis - start_MqttMillis)> (mqttKeepAlive*1000))
+  if  ((millis() - start_MqttMillis)> (mqttKeepAlive*1000))
   {
       KeepMqttAlive();
   }
