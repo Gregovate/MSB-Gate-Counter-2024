@@ -3,6 +3,7 @@ Gate Counter by Greg Liebig gliebig@sheboyganlights.org
 Initial Build 12/5/2023 12:15 pm
 
 Changelog
+24.11.9.2 Added mqtt publish when car counter cars updates
 24.11.9.1 Added mqtt loop to while loop. Working code excluding elegantota update
 24.11.8.1 testing beamSensorBoune time
 24.11.6.2 Increased carDetectTime from 500 to 750 millis Sensor bounces with my truck
@@ -63,7 +64,7 @@ D23 - MOSI
 #define beamSensorPin 33  //Pin for Reflective Beam Sensor
 #define PIN_SPI_CS 5 // SD Card CS GPIO5
 // #define MQTT_KEEPALIVE 30 //removed 10/16/24
-#define FWVersion "24.11.9.1" // Firmware Version
+#define FWVersion "24.11.9.2" // Firmware Version
 #define OTA_Title "Gate Counter" // OTA Title
 unsigned int carDetectMillis = 500; // minimum millis for beamSensor to be broken needed to detect a car
 unsigned int showStartTime = 17*60 + 10; // Show (counting) starts at 5:10 pm
@@ -142,6 +143,7 @@ char topicBase[60];
 #define MQTT_PUB_TOPIC10 "msb/traffic/GateCounter/ShoTot"
 #define MQTT_PUB_TOPIC11 "msb/traffic/GateCounter/debug/timeout"
 #define MQTT_PUB_TOPIC12 "msb/traffic/GateCounter/debug/beamSensorState"
+#define MQTT_PUB_TOPIC13 "msb/traffic/GateCounter/debug/magSensorState"
 
 // Subscribing Topics (to reset values)
 #define MQTT_SUB_TOPIC0  "msb/traffic/CarCounter/DayTot"
@@ -174,6 +176,7 @@ int totalDailyCars;
 int totalShowCars;
 int inParkCars; // cars in park
 int carCounterCars; // Counts from Car Counter
+int lastcarCounterCars; // Used to publish in park cars when car counter increases
 int carsHr18 =0; // total cars hour 18 (6:00 pm)
 int carsHr19 =0; // total cars hour 19 (7:00 pm)
 int carsHr20 =0; // total cars hour 20 (8:00 pm)
@@ -308,6 +311,11 @@ void callback(char* topic, byte* payload, unsigned int length) {
   if (strcmp(topic, MQTT_SUB_TOPIC0) == 0) {
     carCounterCars = atoi((char *)payload);
     inParkCars=carCounterCars-totalDailyCars; // recalculate cars in park
+    if (carCounterCars != lastcarCounterCars)
+    {
+      mqtt_client.publish(MQTT_PUB_TOPIC4, String(inParkCars).c_str()); // update in park cars
+      lastcarCounterCars = carCounterCars;
+    }  
   }
   
   /* Topic used to manually reset gate total cars */
@@ -1148,9 +1156,13 @@ void loop()
     Then Reset Car Present Flag to 0 */
     while (carPresentFlag == 1)
     {
+      magSensorState = !digitalRead(magSensorPin);
       beamSensorState = !digitalRead(beamSensorPin); // BSS-Beam Sensor is now priority. Ignore magSensor until car clears detection zone
       TimeToPassMillis=millis()-carDetectedMillis; //   TTPm-While car in detection zone, Record time while car is passing         
-    
+      if (magSensorState != lastmagSensorState)
+      {
+        mqtt_client.publish(MQTT_PUB_TOPIC13, String(magSensorState).c_str());
+      }
       if (beamSensorState != lastbeamSensorState && beamSensorState == 0) // if beam bounces set timer
       {
         beamSensorBounceTime = millis(); // double check. may need a way to reset if there is a bounce 11/3/24
