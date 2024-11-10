@@ -3,6 +3,7 @@ Gate Counter by Greg Liebig gliebig@sheboyganlights.org
 Initial Build 12/5/2023 12:15 pm
 
 Changelog
+24.11.10.2 Miscellaneous formatting issues before re-creating JSON branch again
 24.11.10.1 Fixed bounce check, changed filename methods merged Arduino json branch
 24.11.9.2 Added mqtt publish when car counter cars updates
 24.11.9.1 Added mqtt loop to while loop. Working code excluding elegantota update
