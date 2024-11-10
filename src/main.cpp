@@ -3,6 +3,7 @@ Gate Counter by Greg Liebig gliebig@sheboyganlights.org
 Initial Build 12/5/2023 12:15 pm
 
 Changelog
+24.11.10.1 Fixed bounce check, changed filename methods merged Arduino json branch
 24.11.9.2 Added mqtt publish when car counter cars updates
 24.11.9.1 Added mqtt loop to while loop. Working code excluding elegantota update
 24.11.8.1 testing beamSensorBoune time
@@ -35,6 +36,7 @@ D23 - MOSI
 
 #include <Arduino.h>
 #include <Wire.h>
+#include <ArduinoJson.h>
 #include <PubSubClient.h>
 //#include <ArduinoJson.h>
 #include <Adafruit_GFX.h>
@@ -64,7 +66,7 @@ D23 - MOSI
 #define beamSensorPin 33  //Pin for Reflective Beam Sensor
 #define PIN_SPI_CS 5 // SD Card CS GPIO5
 // #define MQTT_KEEPALIVE 30 //removed 10/16/24
-#define FWVersion "24.11.9.2" // Firmware Version
+#define FWVersion "24.11.10.1" // Firmware Version
 #define OTA_Title "Gate Counter" // OTA Title
 unsigned int carDetectMillis = 500; // minimum millis for beamSensor to be broken needed to detect a car
 unsigned int showStartTime = 17*60 + 10; // Show (counting) starts at 5:10 pm
@@ -137,7 +139,7 @@ char topicBase[60];
 #define MQTT_PUB_TOPIC4 "msb/traffic/GateCounter/inParkCars"
 #define MQTT_PUB_TOPIC5 "msb/traffic/GateCounter/hour18"
 #define MQTT_PUB_TOPIC6 "msb/traffic/GateCounter/hour19"
-#define MQTT_PUB_TOPIC7 "msb/traffic/GateCounter/hou20"
+#define MQTT_PUB_TOPIC7 "msb/traffic/GateCounter/hour20"
 #define MQTT_PUB_TOPIC8 "msb/traffic/GateCounter/hour21"
 #define MQTT_PUB_TOPIC9 "msb/traffic/GateCounter/DayTot"
 #define MQTT_PUB_TOPIC10 "msb/traffic/GateCounter/ShoTot"
@@ -207,10 +209,10 @@ File myFile; //used to write files to SD Card
 const String fileName1 = "/DailyTot.txt"; // /DailyTot.txt file to store daily counts in the event of a Failure
 const String fileName2 = "/ShowTot.txt";  // /ShowTot.txt file to store season total counts
 const String fileName3 = "/CalDay.txt"; // /CalDay.txt file to store current day number
-const String fileName4 = "/RunDays.txt"; // /unDays.txt file to store days since open
+const String fileName4 = "/RunDays.txt"; // /RunDays.txt file to store days since open
 const String fileName5 = "/GateSummary.csv"; // /GateSummary.csv Stores Daily Totals by Hour and total
 const String fileName6 = "/GateLog.csv"; // GateLog.csv file to store all car counts for season (was MASTER.CSV)
-const String fileName7 = "/SensorBounces.csv"; // /SensorBounces.csv file to store all car counts for season (was MASTER.CSV)
+const String fileName7 = "/SensorBounces.csv"; // /SensorBounces.csv file to store all bounce counts for season
 
 /***** Used to make display Pretty *****/
 char days[7][4] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
@@ -293,7 +295,7 @@ void setup_wifi() {
   server.begin();
   Serial.println("HTTP server started");
 
-  delay(5000);
+  //delay(1000);
 }
 
 
@@ -486,8 +488,6 @@ void getDaysRunning()   // Days the show has been running)
     }
 } 
 
-
-
 /***** UPDATE TOTALS TO SD CARD *****/
 void HourlyTotals()
 {
@@ -515,7 +515,8 @@ void updateDailyTotal()
   }
   else
   {
-     Serial.print(F("SD Card: Cannot open the file:  DailyTot.txt"));
+    Serial.print(F("SD Card: Cannot open the file: "));
+    Serial.println(fileName1);
   } 
 }
 
@@ -529,11 +530,12 @@ void updateShowTotal()  /* -----Increment the grand total cars file ----- */
   }
   else
   {
-    Serial.print(F("SD Card: Cannot open the file ShowTot.TXT"));
+    Serial.print(F("SD Card: Cannot open the file: "));
+    Serial.println(fileName2);
   }
 }
 
-void updateCalDay()  /* -----Increment the grand total cars file ----- */
+void updateCalDay()  /* -----Increment the calendar day file ----- */
 {
    myFile = SD.open(fileName3,FILE_WRITE);
    if (myFile)
@@ -543,11 +545,12 @@ void updateCalDay()  /* -----Increment the grand total cars file ----- */
    }
    else
    {
-      Serial.print(F("SD Card: Cannot open the file ShowTot.TXT"));
+    Serial.print(F("SD Card: Cannot open the file: "));
+    Serial.println(fileName3);
    }
 }
 
-void updateDaysRunning()
+void updateDaysRunning() /* increment day of show since start */
 {
   myFile = SD.open(fileName4,FILE_WRITE);
   if (myFile) // check for an open failure
@@ -557,60 +560,66 @@ void updateDaysRunning()
   }
   else
   {
-    Serial.print(F("SD Card: Cannot open the file RunDays.txt"));
+    Serial.print(F("SD Card: Cannot open the file: "));
+    Serial.println(fileName4);
   }
 }
 
-void updateCarCount(){
-        DateTime now = rtc.now();
-        Serial.print(now.toString(buf3));
-        Serial.print(", Time to pass = ");
-        Serial.println(TimeToPassMillis);
-        //Serial.print(", ");
-        //Serial.print(String("DateTime::TIMESTAMP_FULL:\t")+now.timestamp(DateTime::TIMESTAMP_FULL));
-        //Serial.print(",1,"); 
-        totalDailyCars ++;
-        updateDailyTotal(); // Update Daily Total on SD Card to retain numbers with reboot
-        if (showTime == true)
-        {
-          totalShowCars ++;
-          updateShowTotal(); // update show total count in event of power failure during show hours
-        }
-        inParkCars=carCounterCars-totalDailyCars;
-        // open file for writing Car Data
-        //HEADER: ("Date Time,Pass Timer,NoCar Timer,Bounces,Car#,Cars In Park,Temp,Last Car Millis, This Car Millis,Bounce Flag,Millis");
-        myFile = SD.open(fileName6, FILE_APPEND);
-        if (myFile) {
-          myFile.print(now.toString(buf3));
-          myFile.print(", ");
-          myFile.print (TimeToPassMillis) ; 
-          myFile.print(", ");
-          myFile.print (totalDailyCars) ; 
-          myFile.print(", ");
-          myFile.print(inParkCars);
-          myFile.print(", ");
-          myFile.print(tempF);
-          myFile.print(" , ");
-          myFile.println(carDetectedMillis); //Prints car number being detected
-          myFile.close();
-              
-          Serial.print(F("Car Saved to SD Card. Car Number = "));
-          Serial.print(totalDailyCars);
-          Serial.print(F(" Cars in Park = "));
-          Serial.println(inParkCars);  
-          mqtt_client.publish(MQTT_PUB_TOPIC1, String(tempF).c_str());
-          mqtt_client.publish(MQTT_PUB_TOPIC2, now.toString(buf3));
-          mqtt_client.publish(MQTT_PUB_TOPIC3, String(totalDailyCars).c_str());
-          mqtt_client.publish(MQTT_PUB_TOPIC4, String(inParkCars).c_str());
-          mqtt_client.publish(MQTT_PUB_TOPIC12, String(beamSensorState).c_str());
-          //snprintf (msg, MSG_BUFFER_SIZE, "Car #%ld,", totalDailyCars);
-          //Serial.print("Publish message: ");
-          //Serial.println(msg);
-          //mqtt_client.publish("msbGateCount", msg);
-          //}
-        } else {
-          Serial.print(F("SD Card: Issue encountered while attempting to open the file GateCount.csv"));
-        }
+void updateCarCount()
+{
+  DateTime now = rtc.now();
+  Serial.print(now.toString(buf3));
+  Serial.print(", Time to pass = ");
+  Serial.println(TimeToPassMillis);
+  //Serial.print(", ");
+  //Serial.print(String("DateTime::TIMESTAMP_FULL:\t")+now.timestamp(DateTime::TIMESTAMP_FULL));
+  //Serial.print(",1,"); 
+  totalDailyCars ++;
+  updateDailyTotal(); // Update Daily Total on SD Card to retain numbers with reboot
+  if (showTime == true)
+  {
+    totalShowCars ++;
+    updateShowTotal(); // update show total count in event of power failure during show hours
+  }
+  inParkCars=carCounterCars-totalDailyCars;
+  // open file for writing Car Data
+  //HEADER: ("Date Time,Time to Pass,Car#,Cars In Park,Temp,Millis");
+  myFile = SD.open(fileName6, FILE_APPEND);
+  if (myFile)
+  {
+    myFile.print(now.toString(buf3));
+    myFile.print(", ");
+    myFile.print (TimeToPassMillis) ; 
+    myFile.print(", ");
+    myFile.print (totalDailyCars) ; 
+    myFile.print(", ");
+    myFile.print(inParkCars);
+    myFile.print(", ");
+    myFile.print(tempF);
+    myFile.print(" , ");
+    myFile.println(carDetectedMillis); //Prints millis when car is detected
+    myFile.close();
+        
+    Serial.print(F("Car Saved to SD Card. Car Number = "));
+    Serial.print(totalDailyCars);
+    Serial.print(F(" Cars in Park = "));
+    Serial.println(inParkCars);  
+    mqtt_client.publish(MQTT_PUB_TOPIC1, String(tempF).c_str());
+    mqtt_client.publish(MQTT_PUB_TOPIC2, now.toString(buf3));
+    mqtt_client.publish(MQTT_PUB_TOPIC3, String(totalDailyCars).c_str());
+    mqtt_client.publish(MQTT_PUB_TOPIC4, String(inParkCars).c_str());
+    mqtt_client.publish(MQTT_PUB_TOPIC12, String(beamSensorState).c_str());
+    mqtt_client.publish(MQTT_PUB_TOPIC13, String(magSensorState).c_str());
+    //snprintf (msg, MSG_BUFFER_SIZE, "Car #%ld,", totalDailyCars);
+    //Serial.print("Publish message: ");
+    //Serial.println(msg);
+    //mqtt_client.publish("msbGateCount", msg);
+    //}
+  } else 
+  {
+    Serial.print(F("SD Card: Cannot open the file: "));
+    Serial.println(fileName6);
+  }
 }
 
 /***** END OF FILE OPS *****/
@@ -654,7 +663,6 @@ void initSDCard()
   display.setTextSize(1);
   display.setTextColor(WHITE);
   display.setCursor(0,line1);
-  //display.println("SD Card Ready");
   display.printf("SD Card Size: %lluMB\n", cardSize);
   display.display();
 }
@@ -699,7 +707,8 @@ void setup()
     //***** Check AND/OR Prep Files for use ******/ 
     if (!SD.exists(fileName1))
     {
-      Serial.println(F("DailyTot.txt doesn't exist. Creating file..."));
+      Serial.print(fileName1);
+      Serial.println(F(" doesn't exist. Creating file..."));
       // create a new file by opening a new file and immediately close it
       myFile = SD.open(fileName1, FILE_WRITE);
       myFile.close();
@@ -711,7 +720,8 @@ void setup()
       }
     if (!SD.exists(fileName2))
     {
-      Serial.println(F("ShowTot.txt doesn't exist. Creating file..."));
+      Serial.print(fileName2);
+      Serial.println(F(" doesn't exist. Creating file..."));
       // create a new file by opening a new file and immediately close it
       myFile = SD.open(fileName2, FILE_WRITE);
       myFile.close();
@@ -724,7 +734,8 @@ void setup()
 
     if (!SD.exists(fileName3))
     {
-      Serial.println(F("CalDay.txt doesn't exist. Creating file..."));
+      Serial.print(fileName3);
+      Serial.println(F(" doesn't exist. Creating file..."));
       // create a new file by opening a new file and immediately close it
       myFile = SD.open(fileName3, FILE_WRITE);
       myFile.close();
@@ -737,7 +748,8 @@ void setup()
 
     if (!SD.exists(fileName4))
     {
-      Serial.println(F("RunDays.txt doesn't exist. Creating file..."));
+      Serial.print(fileName4);
+      Serial.println(F(" doesn't exist. Creating file..."));
       // create a new file by opening a new file and immediately close it
       myFile = SD.open(fileName4, FILE_WRITE);
       myFile.close();
@@ -747,18 +759,20 @@ void setup()
       Serial.print(fileName4);
       Serial.println(F(" exists on SD Card."));
     }
+
     if (!SD.exists(fileName5))
     {
-      Serial.println(F("GateSummary.csv doesn't exist. Creating file..."));
+      Serial.print(fileName5);
+      Serial.println(F(" doesn't exist. Creating file..."));
       // create a new file by opening a new file and immediately close it
       myFile = SD.open(fileName5, FILE_WRITE);
       myFile.close();
       // recheck if file is created & write Header
       myFile = SD.open(fileName5, FILE_APPEND);
-      myFile.println("Date, Temp, Hour1, Hour2, Hour3, Hour4, Total");
+      myFile.println("Date, Temp, Hour18, Hour18, Hour20, Hour21, Total");
       myFile.close();
-      Serial.println(F("Header Written to file DailySummary.csv"));
-      myFile.close();
+      Serial.print(F("Header Written to "));
+      Serial.println(fileName5);
     }
     else
     {
@@ -768,14 +782,18 @@ void setup()
 
     if (!SD.exists(fileName6))
     {
+      Serial.print(fileName6);
+      Serial.println(F(" doesn't exist. Creating file..."));
+      // create a new file by opening a new file and immediately close it
       myFile = SD.open(fileName6, FILE_WRITE);
       myFile.close();
       myFile = SD.open(fileName6, FILE_APPEND);
       // recheck if file is created write Header
-      //HEADER: ("Date Time,Pass Timer,NoCar Timer,Bounces,Car#,Cars In Park,Temp,Last Car Millis, This Car Millis,Bounce Flag,Millis");
-      myFile.println("Date Time,Pass Timer,NoCar Timer,Bounces,Car#,Cars In Park,Temp,Last Car Millis, This Car Millis,Bounce Flag,Millis");
+       //HEADER: ("Date Time,Time to Pass,Car#,Cars In Park,Temp,Millis");
+      myFile.println("Date Time,TimeToPass,Car#,Cars In Park,Temp,Car Detected Millis");
       myFile.close();
-      Serial.println(F("Header Written to GateCount.csv"));
+      Serial.print(F("Header Written to "));
+      Serial.println(fileName6);
     } 
     else
     {
@@ -786,7 +804,8 @@ void setup()
     
     if (!SD.exists(fileName7))
     {
-      Serial.println(F("SensorBounces.csv doesn't exist. Creating SensorBounces.csv file..."));
+      Serial.print(fileName7);
+      Serial.println(F(" doesn't exist. Creating file..."));
       // create a new file by opening a new file and immediately close it
       myFile = SD.open(fileName7, FILE_WRITE);
       myFile.close();
@@ -794,7 +813,8 @@ void setup()
       //("DateTime\t\t\tPassing Time\tLast High\tDiff\tLow Millis\tLast Low\tDiff\tBounce #\tCurent State\tCar#" )
       myFile.println("DateTime,TimeToPass,Last Beam Low,Beam Low,Diff,Beam State, Bounce#,Car#");
       myFile.close();
-      Serial.println(F("Header Written to SensorBounces.csv"));
+      Serial.print(F("Header Written to "));
+      Serial.println(fileName7);
     }
     else
     {
@@ -1130,11 +1150,8 @@ void loop()
 
   if ((magSensorState == 1) && (beamSensorState == 1)) 
   {
-//    if (millis()-beamSensorTripTime >= carDetectMillis) // if beamsensor is blocked for x millis
-//    {
     carPresentFlag = 1; // when both detectors are high, set flag car is in detection zone. Then only watch Beam Sensor
     carDetectedMillis = millis(); // Freeze time when car entered detection zone (use to calculate TimeToPass in millis
-//    }
     // DEBUG CODE
     
     DateTime now = rtc.now();
@@ -1174,15 +1191,17 @@ void loop()
       this section will determine if beam sensor is low not caused by a bounce */
       if (beamSensorState == 0)
       {
-       // if ((millis() - beamSensorBounceTime) > 500)  //Allow for 500 millis bounce
-       // {
+        if ((millis() - beamSensorBounceTime) > 500)  //Allow for 500 millis bounce
+        {
           TimeToPassMillis=millis()-carDetectedMillis; //   TTPm-While car in detection zone, Record time while car is passing 
           carPresentFlag = 0;  //Reset carPresentFlag 
-          mqtt_client.publish(MQTT_PUB_TOPIC12, String(beamSensorState).c_str());
+          //mqtt_client.publish(MQTT_PUB_TOPIC12, String(beamSensorState).c_str());
           updateCarCount(); // update Daily Totals and write data to file
-      //  }
+        }
       }  // end of car passed check
-      mqtt_client.loop();
+      mqtt_client.loop(); // Keep MQTT Active when car takes long time to pass
+      lastmagSensorState = magSensorState;
+      lastbeamSensorState = beamSensorState;
     } // end of Car in detection zone (while loop)
   } /* End if when both Beam Sensors are HIGH */
   /***** END OF CAR DETECTION *****/
@@ -1196,6 +1215,6 @@ void loop()
       KeepMqttAlive();
   }
 
-  lastbeamSensorState = beamSensorState;
-  lastmagSensorState = magSensorState;
+//  lastbeamSensorState = beamSensorState;
+//  lastmagSensorState = magSensorState;
 } /***** Repeat Loop *****/
