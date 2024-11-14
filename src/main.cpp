@@ -3,6 +3,7 @@ Gate Counter by Greg Liebig gliebig@sheboyganlights.org
 Initial Build 12/5/2023 12:15 pm
 
 Changelog
+24.11.14.1 Eliminated mqtt timeout, debug topic, added TTP to mqtt
 24.11.10.2 Miscellaneous formatting issues before re-creating JSON branch again
 24.11.10.1 Fixed bounce check, changed filename methods merged Arduino json branch
 24.11.9.2 Added mqtt publish when car counter cars updates
@@ -67,7 +68,7 @@ D23 - MOSI
 #define beamSensorPin 33  //Pin for Reflective Beam Sensor
 #define PIN_SPI_CS 5 // SD Card CS GPIO5
 // #define MQTT_KEEPALIVE 30 //removed 10/16/24
-#define FWVersion "24.11.10.2" // Firmware Version
+#define FWVersion "24.11.14.1" // Firmware Version
 #define OTA_Title "Gate Counter" // OTA Title
 unsigned int carDetectMillis = 500; // minimum millis for beamSensor to be broken needed to detect a car
 unsigned int showStartTime = 17*60 + 10; // Show (counting) starts at 5:10 pm
@@ -144,9 +145,9 @@ char topicBase[60];
 #define MQTT_PUB_TOPIC8 "msb/traffic/GateCounter/hour21"
 #define MQTT_PUB_TOPIC9 "msb/traffic/GateCounter/DayTot"
 #define MQTT_PUB_TOPIC10 "msb/traffic/GateCounter/ShoTot"
-#define MQTT_PUB_TOPIC11 "msb/traffic/GateCounter/debug/timeout"
-#define MQTT_PUB_TOPIC12 "msb/traffic/GateCounter/debug/beamSensorState"
-#define MQTT_PUB_TOPIC13 "msb/traffic/GateCounter/debug/magSensorState"
+#define MQTT_PUB_TOPIC11 "msb/traffic/GateCounter/TTP"
+#define MQTT_PUB_TOPIC12 "msb/traffic/GateCounter/beamSensorState"
+#define MQTT_PUB_TOPIC13 "msb/traffic/GateCounter/magSensorState"
 
 // Subscribing Topics (to reset values)
 #define MQTT_SUB_TOPIC0  "msb/traffic/CarCounter/DayTot"
@@ -611,6 +612,7 @@ void updateCarCount()
     mqtt_client.publish(MQTT_PUB_TOPIC4, String(inParkCars).c_str());
     mqtt_client.publish(MQTT_PUB_TOPIC12, String(beamSensorState).c_str());
     mqtt_client.publish(MQTT_PUB_TOPIC13, String(magSensorState).c_str());
+    mqtt_client.publish(MQTT_PUB_TOPIC11, String(TimeToPassMillis).c_str());
     //snprintf (msg, MSG_BUFFER_SIZE, "Car #%ld,", totalDailyCars);
     //Serial.print("Publish message: ");
     //Serial.println(msg);
@@ -908,6 +910,18 @@ void setup()
     
     delay(3000);
     start_MqttMillis = millis();
+    magSensorState=!digitalRead(magSensorPin);
+    beamSensorState=!digitalRead(beamSensorPin);
+    if (mqtt_client.connected())
+    {
+      //mqtt_client.publish(MQTT_PUB_TOPIC1, String(tempF).c_str());
+      //mqtt_client.publish(MQTT_PUB_TOPIC2, now.toString(buf3));
+      //mqtt_client.publish(MQTT_PUB_TOPIC3, String(totalDailyCars).c_str());
+      //mqtt_client.publish(MQTT_PUB_TOPIC4, String(inParkCars).c_str());
+      mqtt_client.publish(MQTT_PUB_TOPIC12, String(beamSensorState).c_str());
+      mqtt_client.publish(MQTT_PUB_TOPIC13, String(magSensorState).c_str());
+    }
+
 } //***** END SETUP ******/
 
 void loop()
@@ -1004,14 +1018,14 @@ void loop()
     /* If MQTT is not connected then Attempt MQTT Connection */
     if (!mqtt_client.connected())
     {
-      if (millis() - start_MqttMillis > mqtt_connectionCheckMillis)
-      {
+      //if (millis() - start_MqttMillis > mqtt_connectionCheckMillis)
+     // {
         Serial.print("hour = ");
         Serial.println(currentHr12);
         Serial.println("Attempting MQTT Connection");
         MQTTreconnect();
         start_MqttMillis = millis();
-      }   
+      //}   
     } else {
          //keep MQTT client connected when WiFi is connected
          mqtt_client.loop();
