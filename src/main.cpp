@@ -3,6 +3,8 @@ Gate Counter by Greg Liebig gliebig@sheboyganlights.org
 Initial Build 12/5/2023 12:15 pm
 
 Changelog
+24.11.25.3 Cleaned up MQTT Topics
+24.11.25.2 Added in state change in loop to publish mag sensor states. Missed 5 cars during dog show.
 24.11.25.1 Added MQTT Topics for Remote Reset to match Car Counter. Added Alarm for blocked beam sensor
 24.11.19.1 Replace Current Day & Calday with DayOfMonth. Added boolean to print daily summary once
 24.11.18.1 Added publishing totals on manual reset
@@ -72,7 +74,7 @@ D23 - MOSI
 #define beamSensorPin 33  //Pin for Reflective Beam Sensor
 #define PIN_SPI_CS 5 // SD Card CS GPIO5
 // #define MQTT_KEEPALIVE 30 //removed 10/16/24
-#define FWVersion "24.11.25.1" // Firmware Version
+#define FWVersion "24.11.25.3" // Firmware Version
 #define OTA_Title "Gate Counter" // OTA Title
 unsigned int carDetectMillis = 500; // minimum millis for beamSensor to be broken needed to detect a car
 unsigned int showStartTime = 17*60 + 10; // Show (counting) starts at 5:10 pm
@@ -148,11 +150,12 @@ char topicBase[60];
 #define MQTT_PUB_TOPIC6 "msb/traffic/GateCounter/Exit_19"
 #define MQTT_PUB_TOPIC7 "msb/traffic/GateCounter/Exit_20"
 #define MQTT_PUB_TOPIC8 "msb/traffic/GateCounter/Exit_21"
-#define MQTT_PUB_TOPIC9 "msb/traffic/GateCounter/ExitTotal"
+#define MQTT_PUB_TOPIC9 "msb/traffic/GateCounter/DayOfMonth"
 #define MQTT_PUB_TOPIC10 "msb/traffic/GateCounter/ShowTotal"
 #define MQTT_PUB_TOPIC11 "msb/traffic/GateCounter/TTP"
 #define MQTT_PUB_TOPIC12 "msb/traffic/GateCounter/beamSensorState"
 #define MQTT_PUB_TOPIC13 "msb/traffic/GateCounter/magSensorState"
+#define MQTT_PUB_TOPIC14 "msb/traffic/GateCounter/DaysRunning"
 // Subscribing Topics (to reset values)
 #define MQTT_SUB_TOPIC0  "msb/traffic/CarCounter/EnterTotal"
 #define MQTT_SUB_TOPIC1  "msb/traffic/GateCounter/resetDailyCount"
@@ -160,7 +163,6 @@ char topicBase[60];
 #define MQTT_SUB_TOPIC3  "msb/traffic/GateCounter/resetDayOfMonth"
 #define MQTT_SUB_TOPIC4  "msb/traffic/GateCounter/resetDaysRunning"
 #define MQTT_SUB_TOPIC5  "msb/traffic/GateCounter/gateCounterTimeout"
-#define MQTT_SUB_TOPIC6  "msb/traffic/GateCounter/resetCalendarDay"
 
 //const uint32_t connectTimeoutMs = 10000;
 uint16_t connectTimeOutPerAP=5000;
@@ -181,7 +183,7 @@ unsigned int currentHr24;
 unsigned int currentMin;
 unsigned int currentSec;
 unsigned int lastDayOfMonth;
-unsigned int daysRunning;
+unsigned int daysRunning = 0;  // Number of days the show is running.
 unsigned int currentTimeMinute; // for converting clock time hh:mm to clock time mm
 
 int totalDailyCars;
@@ -321,12 +323,13 @@ void MQTTreconnect()
       display.setTextColor(WHITE);
       display.setCursor(0,line5);
       display.println("MQTT Connect");
-      display.display();     Serial.println("connected!");
+      display.display();    
+      Serial.println("connected!");
       Serial.println("Waiting for Car");
       // Once connected, publish an announcement…
-      mqtt_client.publish(MQTT_PUB_TOPIC0, "Hello from Gate Counter!");
+      mqtt_client.publish(MQTT_PUB_TOPIC0, "Gate Counter ONLINE!");
       mqtt_client.publish(MQTT_PUB_TOPIC1, String(tempF).c_str());
-      mqtt_client.publish(MQTT_PUB_TOPIC9, String(totalDailyCars).c_str());
+      mqtt_client.publish(MQTT_PUB_TOPIC3, String(totalDailyCars).c_str());
       mqtt_client.publish(MQTT_PUB_TOPIC4, String(inParkCars).c_str());
       // … and resubscribe
       mqtt_client.subscribe(MQTT_PUB_TOPIC0);
@@ -350,7 +353,6 @@ void MQTTreconnect()
   mqtt_client.subscribe(MQTT_SUB_TOPIC3);
   mqtt_client.subscribe(MQTT_SUB_TOPIC4);
   mqtt_client.subscribe(MQTT_SUB_TOPIC5);
-  mqtt_client.subscribe(MQTT_SUB_TOPIC6); 
 }
 
 void SetLocalTime()
@@ -407,6 +409,7 @@ void getDailyTotal()   // open DAILYTOT.txt to get initial dailyTotal value
     Serial.println(totalDailyCars);
     }
     myFile.close();
+    mqtt_client.publish(MQTT_PUB_TOPIC3, String(totalDailyCars).c_str());
   }
   else
   {
@@ -427,6 +430,7 @@ void getShowTotal()     // open ShowTot.txt to get totalCars for season
       Serial.println(totalShowCars);
     }
     myFile.close();
+    mqtt_client.publish(MQTT_PUB_TOPIC10, String(totalShowCars).c_str());
   }
   else
   {
@@ -446,6 +450,7 @@ void getDayOfMonth()  // get the last calendar day used for reset daily counts)
       Serial.println(lastDayOfMonth);
       }
     myFile.close();
+    mqtt_client.publish(MQTT_PUB_TOPIC9, String(lastDayOfMonth).c_str());
     }
     else
     {
@@ -465,6 +470,7 @@ void getDaysRunning()   // Days the show has been running)
     Serial.println(daysRunning);
     }
     myFile.close();
+    mqtt_client.publish(MQTT_PUB_TOPIC14, String(daysRunning).c_str());
   }
   else
   {
@@ -489,7 +495,7 @@ void updateHourlyTotals()
 void KeepMqttAlive()
 {
    mqtt_client.publish(MQTT_PUB_TOPIC1, String(tempF).c_str());
-   mqtt_client.publish(MQTT_PUB_TOPIC9, String(totalDailyCars).c_str());
+   mqtt_client.publish(MQTT_PUB_TOPIC3, String(totalDailyCars).c_str());
    mqtt_client.publish(MQTT_PUB_TOPIC4, String(inParkCars).c_str());
    //Serial.println("Keeping MQTT Alive");
    start_MqttMillis = millis();
@@ -502,7 +508,7 @@ void updateDailyTotal()
   {  // check for an open failure
      myFile.print(totalDailyCars);
      myFile.close();
-     mqtt_client.publish(MQTT_PUB_TOPIC9, String(totalDailyCars).c_str());
+     mqtt_client.publish(MQTT_PUB_TOPIC3, String(totalDailyCars).c_str());
      mqtt_client.publish(MQTT_PUB_TOPIC4, String(inParkCars).c_str());
   }
   else
@@ -534,6 +540,7 @@ void updateDayOfMonth()  /* -----Increment the calendar day file ----- */
    {
       myFile.print(DayOfMonth);
       myFile.close();
+      mqtt_client.publish(MQTT_PUB_TOPIC9, String(DayOfMonth).c_str());
    }
    else
    {
@@ -549,6 +556,7 @@ void updateDaysRunning() /* increment day of show since start */
   {
     myFile.print(daysRunning);
     myFile.close();
+    mqtt_client.publish(MQTT_PUB_TOPIC14, String(daysRunning).c_str());
   }
   else
   {
@@ -590,7 +598,7 @@ void WriteDailySummary()
     mqtt_client.publish(MQTT_PUB_TOPIC6, String(carsHr19).c_str());
     mqtt_client.publish(MQTT_PUB_TOPIC7, String(carsHr20).c_str());
     mqtt_client.publish(MQTT_PUB_TOPIC8, String(carsHr21).c_str());
-    mqtt_client.publish(MQTT_PUB_TOPIC9, String(totalDailyCars).c_str());
+    mqtt_client.publish(MQTT_PUB_TOPIC3, String(totalDailyCars).c_str());
     mqtt_client.publish(MQTT_PUB_TOPIC10, String(totalShowCars).c_str());
     hasRun = true;
   }
@@ -728,7 +736,7 @@ void callback(char* topic, byte* payload, unsigned int length)
     inParkCars=carCounterCars-totalDailyCars; // recalculate cars in park
     if (carCounterCars != lastcarCounterCars)
     {
-      mqtt_client.publish(MQTT_PUB_TOPIC9, String(totalDailyCars).c_str());
+      mqtt_client.publish(MQTT_PUB_TOPIC3, String(totalDailyCars).c_str());
       mqtt_client.publish(MQTT_PUB_TOPIC4, String(inParkCars).c_str()); // update in park cars
       lastcarCounterCars = carCounterCars;
     }  
@@ -778,14 +786,6 @@ void callback(char* topic, byte* payload, unsigned int length)
     mqtt_client.publish(MQTT_PUB_TOPIC0, "Gate Counter Timeout Updated");
   }  
  
-   /* Topic used to manually reset Calendar Day */
-  if (strcmp(topic, MQTT_SUB_TOPIC6) == 0)
-  {
-    DayOfMonth = atoi((char *)payload);
-    updateDayOfMonth();
-    Serial.println(F(" Days of Month Updated"));
-    mqtt_client.publish(MQTT_PUB_TOPIC0, "Calendar Day of Month Updated");
-  } 
 
 } /***** END OF CALLBACK TOPICS *****/
 
@@ -977,10 +977,9 @@ void setup()
 
   //on reboot, get totals saved on SD Card
   getDailyTotal();  /*Daily total that is updated with every detection*/
-  getDaysRunning(); /*Needs to be reset 1st day of show*/
-  getDayOfMonth();  /*Saves Calendar Day*/
   getShowTotal();   /*Saves Show Total*/
-
+  getDayOfMonth();  /*Saves Calendar Day*/
+  getDaysRunning(); /*Needs to be reset 1st day of show*/
 
   if (!MDNS.begin(THIS_MQTT_CLIENT))
   {
@@ -995,8 +994,8 @@ void setup()
   {
     //mqtt_client.publish(MQTT_PUB_TOPIC1, String(tempF).c_str());
     //mqtt_client.publish(MQTT_PUB_TOPIC2, now.toString(buf3));
-    //mqtt_client.publish(MQTT_PUB_TOPIC3, String(totalDailyCars).c_str());
-    //mqtt_client.publish(MQTT_PUB_TOPIC4, String(inParkCars).c_str());
+    mqtt_client.publish(MQTT_PUB_TOPIC3, String(totalDailyCars).c_str());
+    mqtt_client.publish(MQTT_PUB_TOPIC4, String(inParkCars).c_str());
     mqtt_client.publish(MQTT_PUB_TOPIC12, String(beamSensorState).c_str());
     mqtt_client.publish(MQTT_PUB_TOPIC13, String(magSensorState).c_str());
   }
@@ -1036,8 +1035,6 @@ void loop()
     updateDayOfMonth();
     totalDailyCars = 0;
     updateDailyTotal();
-    daysRunning++;
-    updateDaysRunning();
     hasRun = false; // reset flag for next day summary
     if (now.month() != 12 && now.day() != 24) // do not increment days running when closed on Christmas Eve
     {
@@ -1056,8 +1053,11 @@ void loop()
     updateDayOfMonth();
     totalDailyCars =0;
     updateDailyTotal();
-    daysRunning++;
-    updateDaysRunning();
+    if (now.month() != 12 && now.day() != 24) // do not include days running when closed on Christmas Eve
+    {
+      daysRunning++; 
+      updateDaysRunning();
+    }
   }
 
   //Save Hourly Totals
@@ -1208,6 +1208,10 @@ void loop()
   {
     magSensorTripTime = millis(); // double check. may need a way to reset if there is a bounce 11/3/24
   }
+  if (magSensorState != lastmagSensorState ) // if 2nd beam switches to High set Timer
+  {
+    mqtt_client.publish(MQTT_PUB_TOPIC13, String(magSensorState).c_str());
+  }
   if (beamSensorState != lastbeamSensorState && beamSensorState == 1) // if 2nd beam switches to High set Timer
   {
     beamSensorTripTime = millis(); // double check. may need a way to reset if there is a bounce 11/3/24
@@ -1217,8 +1221,9 @@ void loop()
   {
     carPresentFlag = 1; // when both detectors are high, set flag car is in detection zone. Then only watch Beam Sensor
     carDetectedMillis = millis(); // Freeze time when car entered detection zone (use to calculate TimeToPass in millis
+    mqtt_client.publish(MQTT_PUB_TOPIC12, String(beamSensorState).c_str());  // publishes beamSensor State goes HIGH
     // DEBUG CODE
-    
+    /*
     DateTime now = rtc.now();
     char buf3[] = "YYYY-MM-DD hh:mm:ss"; //time of day when detector was tripped
     Serial.print("Detector Triggered = ");
@@ -1229,9 +1234,9 @@ void loop()
     Serial.print(millis() - carDetectedMillis);
     Serial.print(", Car Number Being Counted = ");         
     Serial.println (totalDailyCars+1) ;  //add 1 to total daily cars so car being detected is synced
+    */
     
-    mqtt_client.publish(MQTT_PUB_TOPIC12, String(beamSensorState).c_str());  // publishes beamSensor State goes HIGH
-
+  
     /* When both Sensors are tripped, car is in the detection zone. carPresentFlag=1
     Note: magSensor will trip multiple times while car is in detection zone
     when car clears detection zone & beam sensor remains LOW for period of time
@@ -1261,11 +1266,8 @@ void loop()
       {
         mqtt_client.publish(MQTT_PUB_TOPIC13, String(magSensorState).c_str());
       }
-      
-      if (beamSensorState != lastbeamSensorState && beamSensorState == 0) // if beam bounces set timer
-      {
-        beamSensorBounceTime = millis(); // double check. may need a way to reset if there is a bounce 11/3/24
-      }
+
+
       /* If beamSensor is LOW CHECK CAR HAS CLEARED AND BREAK LOOP ################
       force count & reset if there is an undetectable car present 12/25/23
       This section may be removed with new beam sensor 10/13/24                 
@@ -1273,13 +1275,10 @@ void loop()
       this section will determine if beam sensor is low not caused by a bounce */
       if (beamSensorState == 0)
       {
-        if ((millis() - beamSensorBounceTime) > 500)  //Allow for 500 millis bounce
-        {
-          TimeToPassMillis=millis()-carDetectedMillis; //   TTPm-While car in detection zone, Record time while car is passing 
-          carPresentFlag = 0;  //Reset carPresentFlag 
-          //mqtt_client.publish(MQTT_PUB_TOPIC12, String(beamSensorState).c_str());
-          updateCarCount(); // update Daily Totals and write data to file
-        }
+        TimeToPassMillis=millis()-carDetectedMillis; //   TTPm-While car in detection zone, Record time while car is passing 
+        carPresentFlag = 0;  //Reset carPresentFlag 
+        //mqtt_client.publish(MQTT_PUB_TOPIC12, String(beamSensorState).c_str());
+        updateCarCount(); // update Daily Totals and write data to file
       }  // end of car passed check
       mqtt_client.loop(); // Keep MQTT Active when car takes long time to pass
       lastmagSensorState = magSensorState;
@@ -1296,7 +1295,6 @@ void loop()
   {
       KeepMqttAlive();
   }
-
-//  lastbeamSensorState = beamSensorState;
-//  lastmagSensorState = magSensorState;
+  lastbeamSensorState = beamSensorState;
+  lastmagSensorState = magSensorState;
 } /***** Repeat Loop *****/
