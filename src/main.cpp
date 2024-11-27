@@ -3,6 +3,7 @@ Gate Counter by Greg Liebig gliebig@sheboyganlights.org
 Initial Build 12/5/2023 12:15 pm
 
 Changelog
+24.11.27.1 Changed mqtt publish outside File writes, changed daily totals to string pointer, tempF to float
 24.11.26.1 Changed Update to days running since they were doubling on date change
 24.11.25.3 Cleaned up MQTT Topics
 24.11.25.2 Added in state change in loop to publish mag sensor states. Missed 5 cars during dog show.
@@ -75,7 +76,7 @@ D23 - MOSI
 #define beamSensorPin 33  //Pin for Reflective Beam Sensor
 #define PIN_SPI_CS 5 // SD Card CS GPIO5
 // #define MQTT_KEEPALIVE 30 //removed 10/16/24
-#define FWVersion "24.11.26.1" // Firmware Version
+#define FWVersion "24.11.27.1" // Firmware Version
 #define OTA_Title "Gate Counter" // OTA Title
 unsigned int carDetectMillis = 500; // minimum millis for beamSensor to be broken needed to detect a car
 unsigned int showStartTime = 17*60 + 10; // Show (counting) starts at 5:10 pm
@@ -171,7 +172,7 @@ const char* ampm ="AM";
 const char* ntpServer = "pool.ntp.org";
 const long  gmtOffset_sec = -21600;
 const int   daylightOffset_sec = 3600;
-int16_t tempF;
+float tempF;
 
 char buf2[25] = "YYYY-MM-DD hh:mm:ss"; // time car detected
 char buf3[25] = "YYYY-MM-DD hh:mm:ss"; // time bounce detected
@@ -517,6 +518,7 @@ void updateDailyTotal()
     Serial.print(F("SD Card: Cannot open the file: "));
     Serial.println(fileName1);
   } 
+  mqtt_client.publish(MQTT_PUB_TOPIC3, String(totalDailyCars).c_str());
 }
 
 void updateShowTotal()  /* -----Increment the grand total cars file ----- */
@@ -532,6 +534,7 @@ void updateShowTotal()  /* -----Increment the grand total cars file ----- */
     Serial.print(F("SD Card: Cannot open the file: "));
     Serial.println(fileName2);
   }
+   mqtt_client.publish(MQTT_PUB_TOPIC10, String(totalShowCars).c_str());  
 }
 
 void updateDayOfMonth()  /* -----Increment the calendar day file ----- */
@@ -541,13 +544,13 @@ void updateDayOfMonth()  /* -----Increment the calendar day file ----- */
    {
       myFile.print(DayOfMonth);
       myFile.close();
-      mqtt_client.publish(MQTT_PUB_TOPIC9, String(DayOfMonth).c_str());
-   }
+    }
    else
    {
     Serial.print(F("SD Card: Cannot open the file: "));
     Serial.println(fileName3);
    }
+    mqtt_client.publish(MQTT_PUB_TOPIC9, String(DayOfMonth).c_str());
 }
 
 void updateDaysRunning() /* increment day of show since start */
@@ -557,13 +560,13 @@ void updateDaysRunning() /* increment day of show since start */
   {
     myFile.print(daysRunning);
     myFile.close();
-    mqtt_client.publish(MQTT_PUB_TOPIC14, String(daysRunning).c_str());
   }
   else
   {
     Serial.print(F("SD Card: Cannot open the file: "));
     Serial.println(fileName4);
   }
+  mqtt_client.publish(MQTT_PUB_TOPIC14, String(daysRunning).c_str());
 }
 
 void WriteDailySummary()
@@ -590,24 +593,24 @@ void WriteDailySummary()
     myFile.println (tempF); 
     myFile.close();
     Serial.println(F(" = Daily Summary Recorded SD Card."));
-      // Publish Totals
-    mqtt_client.publish(MQTT_PUB_TOPIC1, String(tempF).c_str());
-    mqtt_client.publish(MQTT_PUB_TOPIC2, now.toString(buf2));
-    mqtt_client.publish(MQTT_PUB_TOPIC3, String(totalDailyCars).c_str());
-    mqtt_client.publish(MQTT_PUB_TOPIC4, String(inParkCars).c_str());
-    mqtt_client.publish(MQTT_PUB_TOPIC5, String(carsHr18).c_str());
-    mqtt_client.publish(MQTT_PUB_TOPIC6, String(carsHr19).c_str());
-    mqtt_client.publish(MQTT_PUB_TOPIC7, String(carsHr20).c_str());
-    mqtt_client.publish(MQTT_PUB_TOPIC8, String(carsHr21).c_str());
-    mqtt_client.publish(MQTT_PUB_TOPIC3, String(totalDailyCars).c_str());
-    mqtt_client.publish(MQTT_PUB_TOPIC10, String(totalShowCars).c_str());
-    hasRun = true;
   }
   else
   {
   Serial.print(F("SD Card: Cannot open the file: "));
   Serial.println(fileName5);
   }
+        // Publish Totals
+  mqtt_client.publish(MQTT_PUB_TOPIC1, String(tempF).c_str());
+  mqtt_client.publish(MQTT_PUB_TOPIC2, now.toString(buf2));
+  mqtt_client.publish(MQTT_PUB_TOPIC3, String(totalDailyCars).c_str());
+  mqtt_client.publish(MQTT_PUB_TOPIC4, String(inParkCars).c_str());
+  mqtt_client.publish(MQTT_PUB_TOPIC5, String(dayHour[18]).c_str());
+  mqtt_client.publish(MQTT_PUB_TOPIC6, String(dayHour[19]).c_str());
+  mqtt_client.publish(MQTT_PUB_TOPIC7, String(dayHour[20]).c_str());
+  mqtt_client.publish(MQTT_PUB_TOPIC8, String(dayHour[21]).c_str());
+  mqtt_client.publish(MQTT_PUB_TOPIC3, String(totalDailyCars).c_str());
+  mqtt_client.publish(MQTT_PUB_TOPIC10, String(totalShowCars).c_str());
+  hasRun = true;
 }
 
 void updateCarCount()
