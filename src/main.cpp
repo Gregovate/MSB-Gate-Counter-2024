@@ -3,6 +3,7 @@ Gate Counter by Greg Liebig gliebig@sheboyganlights.org
 Initial Build 12/5/2023 12:15 pm
 
 Changelog
+24.12.02.3 added timer for timeDiff between magSensor HIGH and beamSensor HIGH and timer between cars
 24.12.02.1 revised state machine again for through-beam sensor and removed bounce detection for beam
 24.12.01.3 revised state machine again for beam sensor bouncing during car detection
 24.12.01.2 revised state machine for beam sensor bouncing
@@ -83,7 +84,7 @@ D23 - MOSI
 #define beamSensorPin 33  //Pin for Reflective Beam Sensor
 #define PIN_SPI_CS 5 // SD Card CS GPIO5
 // #define MQTT_KEEPALIVE 30 //removed 10/16/24
-#define FWVersion "24.12.02.1" // Firmware Version
+#define FWVersion "24.12.02.3" // Firmware Version
 #define OTA_Title "Gate Counter" // OTA Title
 unsigned int carDetectMillis = 500; // minimum millis for beamSensor to be broken needed to detect a car
 unsigned int showStartTime = 17*60 + 10; // Show (counting) starts at 5:10 pm
@@ -100,7 +101,8 @@ CarDetectionState carDetectionState = IDLE;
 
 unsigned long magSensorTriggeredTime = 0;       // Time when the magnetometer was first triggered
 unsigned long beamSensorTriggeredTime = 0;      // Time when the beam sensor was first triggered
-unsigned long waitDuration = 1500;              // Maximum wait duration for a vehicle to be confirmed
+unsigned long lastCarExitTime = 0;              // Time when the last car exited (beam sensor went low)
+unsigned long waitDuration = 1150;              // Maximum wait duration for a vehicle to be confirmed
 unsigned long TimeToPassMillis = 0;             // Time from start of detection to confirmation
 bool magSensorWasTriggered = false;             // Tracks if the magnetic sensor was triggered recently
 bool carPassed = false;                         // Tracks if a car has fully passed through
@@ -185,8 +187,9 @@ char topicBase[60];
 #define MQTT_PUB_TOPIC12 "msb/traffic/GateCounter/beamSensorState"
 #define MQTT_PUB_TOPIC13 "msb/traffic/GateCounter/magSensorState"
 #define MQTT_PUB_TOPIC14 "msb/traffic/GateCounter/DaysRunning"
-#define MQTT_PUB_TOPIC15 "msb/traffic/GateCounter/debuglog"
+#define MQTT_TOPIC_DEBUG_LOG "msb/traffic/GateCounter/debuglog"
 #define MQTT_PUB_TOPIC16 "msb/traffic/GateCounter/timeDiff"
+#define MQTT_PUB_TOPIC17 "msb/traffic/GateCounter/lastCarExitTime"
 // Subscribing Topics (to reset values)
 #define MQTT_SUB_TOPIC0  "msb/traffic/CarCounter/EnterTotal"
 #define MQTT_SUB_TOPIC1  "msb/traffic/GateCounter/resetDailyCount"
@@ -334,6 +337,11 @@ void setup_wifi() {
 
   //delay(1000);
 }
+
+void publishDebugLog(const String &message) {
+    publishMQTT(MQTT_TOPIC_DEBUG_LOG, message);
+}
+
 
 void publishMQTT(const char *topic, const String &message) {
     if (mqtt_client.connected()) {
@@ -729,7 +737,6 @@ void initSDCard()
 {
   if(!SD.begin(PIN_SPI_CS)){
     Serial.println("Card Mount Failed");
-    //Serial.println(F("SD CARD FAILED, OR NOT PRESENT!"));
     display.clearDisplay();
     display.setTextSize(1);
     display.setTextColor(WHITE);
@@ -1160,6 +1167,7 @@ void loop()
     magSensorState = !digitalRead(magSensorPin);  // Assuming active high
     beamSensorState = !digitalRead(beamSensorPin); // Assuming active high
 
+  
     // Publish to MQTT only if there's a change in sensor state
     if (magSensorState != prevMagSensorState) {
         publishMQTT(MQTT_PUB_TOPIC13, String(magSensorState)); // Publish magnetic sensor state via MQTT
@@ -1169,6 +1177,12 @@ void loop()
         if (magSensorState == 1) {
             magSensorTriggeredTime = millis();
             magSensorWasTriggered = true;
+
+            // Calculate and publish the time since the last car exited
+            if (lastCarExitTime != 0) {
+                unsigned long timeBetweenCars = magSensorTriggeredTime - lastCarExitTime;
+                publishMQTT(MQTT_PUB_TOPIC17, String(timeBetweenCars));
+            }
         }
     }
 
@@ -1180,11 +1194,22 @@ void loop()
         if (beamSensorState == 1 && magSensorWasTriggered) {
             beamSensorTriggeredTime = millis();
             unsigned long timeDifference = beamSensorTriggeredTime - magSensorTriggeredTime;
-            publishMQTT(MQTT_PUB_TOPIC16,String(timeDifference));
+            publishMQTT(MQTT_PUB_TOPIC16, String(timeDifference));
 
             // Proceed with state change to vehicle validation
             carDetectionState = BEAM_SENSOR_VALIDATION;
-            publishMQTT(MQTT_PUB_TOPIC15, "Beam sensor triggered after magnetic sensor. Moving to BEAM_SENSOR_VALIDATION state.");
+            publishDebugLog("Beam sensor triggered after magnetic sensor. Moving to BEAM_SENSOR_VALIDATION state.");
+        }
+
+        // If the beam sensor goes low, record the time of the car exit
+        if (beamSensorState == 0 && carDetectionState == VEHICLE_CONFIRMED) {
+            lastCarExitTime = millis();
+            TimeToPassMillis = lastCarExitTime - magSensorTriggeredTime; // Calculate total time vehicle stayed in detection zone
+            publishMQTT(MQTT_PUB_TOPIC11, String(TimeToPassMillis));
+            carDetectionState = IDLE; // Directly transition back to IDLE, allowing detection of the next vehicle
+            carPassed = false; // Reset carPassed flag
+            magSensorWasTriggered = false; // Reset magnetic trigger flag
+            publishDebugLog("Returning to IDLE state.");
         }
     }
 
@@ -1195,7 +1220,7 @@ void loop()
                 carDetectionState = MAG_SENSOR_TRIGGERED;
                 magSensorTriggeredTime = millis(); // Record start time for magnetic sensor trigger
                 magSensorWasTriggered = true;  // Mark that magnetic sensor has been triggered
-                publishMQTT(MQTT_PUB_TOPIC15, "Magnetometer sensor triggered. Moving to MAG_SENSOR_TRIGGERED state.");
+                publishDebugLog("Magnetometer sensor triggered. Moving to MAG_SENSOR_TRIGGERED state.");
             }
             break;
 
@@ -1203,12 +1228,12 @@ void loop()
             if (beamSensorState == 1 && magSensorWasTriggered) {
                 // Beam sensor triggered after magnetic sensor, confirm vehicle detection
                 carDetectionState = BEAM_SENSOR_VALIDATION;
-                publishMQTT(MQTT_PUB_TOPIC15, "Beam sensor triggered after magnetic sensor. Moving to BEAM_SENSOR_VALIDATION state.");
+                publishDebugLog("Beam sensor triggered after magnetic sensor. Moving to BEAM_SENSOR_VALIDATION state.");
             } else if (millis() - magSensorTriggeredTime > waitDuration) {
                 // Timeout waiting for beam sensor to confirm
                 carDetectionState = IDLE;
                 magSensorWasTriggered = false; // Reset magnetic trigger flag
-                publishMQTT(MQTT_PUB_TOPIC15, "Timeout waiting for beam sensor. Returning to IDLE state.");
+                publishDebugLog("Timeout waiting for beam sensor. Returning to IDLE state.");
             }
             break;
 
@@ -1216,22 +1241,14 @@ void loop()
             if (beamSensorState == 1) {
                 // Confirm vehicle is passing through
                 carDetectionState = VEHICLE_CONFIRMED;
-                publishMQTT(MQTT_PUB_TOPIC15, "Vehicle confirmed. Moving to VEHICLE_CONFIRMED state.");
+                publishDebugLog("Vehicle confirmed. Moving to VEHICLE_CONFIRMED state.");
                 updateCarCount();  // Count the vehicle
                 carPassed = true;
             }
             break;
 
         case VEHICLE_CONFIRMED:
-            if (beamSensorState == 0) {
-                // Beam sensor has gone low - vehicle has fully passed through
-                TimeToPassMillis = millis() - magSensorTriggeredTime; // Calculate total time vehicle stayed in detection zone
-                publishMQTT(MQTT_PUB_TOPIC11, String(TimeToPassMillis));
-                carDetectionState = IDLE; // Directly transition back to IDLE, allowing detection of the next vehicle
-                carPassed = false; // Reset carPassed flag
-                magSensorWasTriggered = false; // Reset magnetic trigger flag
-                publishMQTT(MQTT_PUB_TOPIC15, "Returning to IDLE state.");
-            }
+            // Handle vehicle exit and transition managed in beam sensor state change section above
             break;
 
         default:
@@ -1239,9 +1256,11 @@ void loop()
             carDetectionState = IDLE;
             carPassed = false; // Reset carPassed flag
             magSensorWasTriggered = false; // Reset magnetic trigger flag
-            publishMQTT(MQTT_PUB_TOPIC15, "Unknown state. Resetting to IDLE.");
+            publishDebugLog("Unknown state. Resetting to IDLE.");
             break;
     }
+
+
  //Added to kepp mqtt connection alive 10/11/24 gal
   if  ((millis() - start_MqttMillis)> (mqttKeepAlive*1000))
   {
