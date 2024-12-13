@@ -133,13 +133,13 @@ void onOTAProgress(size_t current, size_t final) {
 }
 
 void onOTAEnd(bool success) {
-  // Log when OTA has finished
-  if (success) {
-    Serial.println("OTA update finished successfully!");
-  } else {
-    Serial.println("There was an error during OTA update!");
-  }
-  // <Add your own code here>
+    // Log when OTA has finished
+    if (success) {
+      Serial.println("OTA update finished successfully!");
+    } else {
+      Serial.println("There was an error during OTA update!");
+    }
+    // <Add your own code here>
 }
 
 //#include <DS3231.h>
@@ -244,7 +244,7 @@ int carPresentFlag = 0;  // used to flag when car is in the detection zone
 /***** TIMER VARIABLES *****/
 
 unsigned long wifi_connectioncheckMillis = 5000; // check for connection every 5 sec
-unsigned long mqtt_connectionCheckMillis = 20000; // check for connection
+unsigned long mqtt_connectionCheckMillis = 30000; // check for connection
 unsigned long start_MqttMillis; // for Keep Alive Timer
 unsigned long start_WiFiMillis; // for keep Alive Timer
 int gateCounterTimeout = 60000; // default time for car counter alarm in millis
@@ -355,8 +355,7 @@ void publishDebugLog(const String &message) {
     publishMQTT(MQTT_TOPIC_DEBUG_LOG, message);
 }
 
-void MQTTreconnect()
-{
+void MQTTreconnect() {
   // Loop until we’re reconnected
   while (!mqtt_client.connected())
   {
@@ -380,8 +379,7 @@ void MQTTreconnect()
       // … and resubscribe
       mqtt_client.subscribe(MQTT_PUB_TOPIC0);
     } 
-    else
-    {
+    else {
       Serial.print("failed, rc = ");
       Serial.print(mqtt_client.state());
       Serial.println(" try again in 5 seconds");
@@ -402,10 +400,7 @@ void MQTTreconnect()
   mqtt_client.subscribe(MQTT_SUB_TOPIC6);
 }
 
-
-
-void SetLocalTime()
-{
+void SetLocalTime() {
   struct tm timeinfo;
   if(!getLocalTime(&timeinfo))
   {
@@ -447,8 +442,8 @@ void SetLocalTime()
 }
 
 // =========== GET SAVED SETUP FROM SD CARD ==========
-void getDailyTotal()   // open DAILYTOT.txt to get initial dailyTotal value
-{
+// open DAILYTOT.txt to get initial dailyTotal value
+void getDailyTotal() {
   myFile = SD.open(fileName1,FILE_READ);
   if (myFile)
   {
@@ -467,8 +462,8 @@ void getDailyTotal()   // open DAILYTOT.txt to get initial dailyTotal value
   }
 }
 
-void getShowTotal()     // open ShowTot.txt to get totalCars for season
-{
+// open ShowTot.txt to get totalCars for season
+void getShowTotal() {
   myFile = SD.open(fileName2,FILE_READ);
   if (myFile)
   {
@@ -488,8 +483,8 @@ void getShowTotal()     // open ShowTot.txt to get totalCars for season
   }
 }
 
-void getDayOfMonth()  // get the last calendar day used for reset daily counts)
- {
+// get the last calendar day used for reset daily counts)
+void getDayOfMonth() {
     myFile = SD.open(fileName3,FILE_READ);
     if (myFile)
     {
@@ -508,8 +503,8 @@ void getDayOfMonth()  // get the last calendar day used for reset daily counts)
     }
 } 
 
-void getDaysRunning()   // Days the show has been running)
-{
+// Days the show has been running)
+void getDaysRunning() {
   myFile = SD.open(fileName4,FILE_READ);
   if (myFile)
   {
@@ -529,8 +524,7 @@ void getDaysRunning()   // Days the show has been running)
 } 
 
 /***** UPDATE TOTALS TO SD CARD *****/
-void updateHourlyTotals()
-{
+void updateHourlyTotals() {
   char hourPad[6];
   sprintf(hourPad,"%02d", currentHr24);
   dayHour[currentHr24]= totalDailyCars; //write daily total cars to array each hour
@@ -541,8 +535,7 @@ void updateHourlyTotals()
   publishMQTT(topicBase, String(totalDailyCars)); // publish counts
 }
 
-void KeepMqttAlive()
-{
+void KeepMqttAlive() {
    publishMQTT(MQTT_PUB_TOPIC1, String(tempF));
    publishMQTT(MQTT_PUB_TOPIC3, String(totalDailyCars));
    publishMQTT(MQTT_PUB_TOPIC4, String(inParkCars));
@@ -550,8 +543,7 @@ void KeepMqttAlive()
    start_MqttMillis = millis();
 }
 
-void updateDailyTotal()
-{
+void updateDailyTotal() {
   myFile = SD.open(fileName1,FILE_WRITE);
   if (myFile)
   {  // check for an open failure
@@ -560,64 +552,59 @@ void updateDailyTotal()
      publishMQTT(MQTT_PUB_TOPIC3, String(totalDailyCars));
      publishMQTT(MQTT_PUB_TOPIC4, String(inParkCars));
   }
-  else
-  {
+  else {
     Serial.print(F("SD Card: Cannot open the file: "));
     Serial.println(fileName1);
   } 
   publishMQTT(MQTT_PUB_TOPIC3, String(totalDailyCars));
 }
 
-void updateShowTotal()  /* -----Increment the grand total cars file ----- */
-{  
+/* -----Increment the grand total cars file ----- */
+void updateShowTotal() {  
    myFile = SD.open(fileName2,FILE_WRITE);
    if (myFile) 
    {
       myFile.print(totalShowCars);
       myFile.close();
   }
-  else
-  {
+  else {
     Serial.print(F("SD Card: Cannot open the file: "));
     Serial.println(fileName2);
   }
    publishMQTT(MQTT_PUB_TOPIC10, String(totalShowCars));  
 }
 
-void updateDayOfMonth()  /* -----Increment the calendar day file ----- */
-{
+/* -----Increment the calendar day file ----- */
+void updateDayOfMonth() {
    myFile = SD.open(fileName3,FILE_WRITE);
    if (myFile)
    {
       myFile.print(DayOfMonth);
       myFile.close();
     }
-   else
-   {
+   else {
     Serial.print(F("SD Card: Cannot open the file: "));
     Serial.println(fileName3);
    }
     publishMQTT(MQTT_PUB_TOPIC9, String(DayOfMonth));
 }
 
-void updateDaysRunning() /* increment day of show since start */
-{
+/* increment day of show since start */
+void updateDaysRunning() {
   myFile = SD.open(fileName4,FILE_WRITE);
   if (myFile) // check for an open failure
   {
     myFile.print(daysRunning);
     myFile.close();
   }
-  else
-  {
+  else {
     Serial.print(F("SD Card: Cannot open the file: "));
     Serial.println(fileName4);
   }
   publishMQTT(MQTT_PUB_TOPIC14, String(daysRunning));
 }
 
-void WriteDailySummary()
-{
+void WriteDailySummary() {
   DateTime now = rtc.now();
   tempF = ((rtc.getTemperature()*9/5)+32);
   char buf2[] = "YYYY-MM-DD hh:mm:ss";
@@ -641,10 +628,9 @@ void WriteDailySummary()
     myFile.close();
     Serial.println(F(" = Daily Summary Recorded SD Card."));
   }
-  else
-  {
-  Serial.print(F("SD Card: Cannot open the file: "));
-  Serial.println(fileName5);
+  else {
+    Serial.print(F("SD Card: Cannot open the file: "));
+    Serial.println(fileName5);
   }
         // Publish Totals
   publishMQTT(MQTT_PUB_TOPIC1, String(tempF));
@@ -660,8 +646,7 @@ void WriteDailySummary()
   hasRun = true;
 }
 
-void updateCarCount()
-{
+void updateCarCount() {
   DateTime now = rtc.now();
   Serial.print(now.toString(buf3));
   Serial.print(", Time to pass = ");
@@ -671,8 +656,7 @@ void updateCarCount()
   //Serial.print(",1,"); 
   totalDailyCars ++;
   updateDailyTotal(); // Update Daily Total on SD Card to retain numbers with reboot
-  if (showTime == true)
-  {
+  if (showTime == true) {
     totalShowCars ++;  // increase Show Count only when show is open
     updateShowTotal(); // update show total count in event of power failure during show hours
   }
@@ -680,8 +664,7 @@ void updateCarCount()
   // open file for writing Car Data
   //HEADER: ("Date Time,Time to Pass,Car#,Cars In Park,Temp,Millis");
   myFile = SD.open(fileName6, FILE_APPEND);
-  if (myFile)
-  {
+  if (myFile) {
     myFile.print(now.toString(buf3));
     myFile.print(", ");
     myFile.print (TimeToPassMillis) ; 
@@ -714,8 +697,7 @@ void updateCarCount()
     //mqtt_client.publish("msbGateCount", msg);
     //}
   } 
-  else 
-  {
+  else {
     Serial.print(F("SD Card: Cannot open the file: "));
     Serial.println(fileName6);
   }
@@ -821,11 +803,7 @@ void detectCars() {
             break;
     }
 }
-
-
-
-
-
+// END CAR DETECT
 
 void checkAndCreateFile(const String &fileName, const String &header = "") {
     if (!SD.exists(fileName)) {
@@ -843,8 +821,7 @@ void checkAndCreateFile(const String &fileName, const String &header = "") {
     }
 }
 
-void initSDCard()
-{
+void initSDCard() {
   if(!SD.begin(PIN_SPI_CS)){
     Serial.println("Card Mount Failed");
     display.clearDisplay();
@@ -962,8 +939,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
 
 
 /******  BEGIN SETUP ******/
-void setup() 
-{
+void setup() {
   Serial.begin(115200);
   ElegantOTA.setAutoReboot(true);
 
@@ -990,16 +966,13 @@ void setup()
   // WiFi.scanNetworks will return the number of networks found
   int n = WiFi.scanNetworks();
   Serial.println("scan done");
-  if (n == 0)
-  {
+  if (n == 0) {
     Serial.println("no networks found");
   } 
-  else
-  {
+  else {
     Serial.print(n);
     Serial.println(" networks found");
-    for (int i = 0; i < n; ++i)
-    {
+    for (int i = 0; i < n; ++i) {
       // Print SSID and RSSI for each network found
       Serial.print(i + 1);
       Serial.print(": ");
@@ -1017,8 +990,7 @@ void setup()
   mqtt_client.setCallback(callback);
 
   //If RTC not present, stop and check battery
-  if (! rtc.begin())
-  {
+  if (! rtc.begin()) {
     Serial.println("Could not find RTC! Check circuit.");
     display.clearDisplay();
     display.setTextSize(2);
@@ -1056,8 +1028,7 @@ void setup()
   getDayOfMonth();  /*Saves Calendar Day*/
   getDaysRunning(); /*Needs to be reset 1st day of show*/
 
-  if (!MDNS.begin(THIS_MQTT_CLIENT))
-  {
+  if (!MDNS.begin(THIS_MQTT_CLIENT)) {
     Serial.println("Error starting mDNS");
     return;
   }
@@ -1065,8 +1036,7 @@ void setup()
   start_MqttMillis = millis();
   magSensorState=!digitalRead(magSensorPin);
   beamSensorState=digitalRead(beamSensorPin);
-  if (mqtt_client.connected())
-  {
+  if (mqtt_client.connected()) {
     //publishMQTT(MQTT_PUB_TOPIC1, String(tempF));
     //publishMQTT(MQTT_PUB_TOPIC2, now.toString(buf3));
     publishMQTT(MQTT_PUB_TOPIC3, String(totalDailyCars));
@@ -1076,8 +1046,7 @@ void setup()
   }
 } //***** END SETUP ******/
 
-void loop()
-{  
+void loop() {  
   //Required for OTA Programming
   ElegantOTA.loop();
 
@@ -1088,8 +1057,7 @@ void loop()
 
   /*****IMPORTANT***** Reset Gate Counter at 5:10:00  *****/
   /* Only counting vehicles for show */
-  if ((now.hour() == 17) && (now.minute() == 10) && (now.second() == 0))
-  {
+  if ((now.hour() == 17) && (now.minute() == 10) && (now.second() == 0)) {
     carsBeforeShow=totalDailyCars; // records number of cars counted before show starts 11/3/24
     totalDailyCars = 0;
     publishMQTT(MQTT_PUB_TOPIC0, "Gate Counter Zeroed");
@@ -1097,25 +1065,20 @@ void loop()
   }    
   
   //Write Totals at 9:20:00 pm. Gate should close at 9 PM. Allow for any cars in line get through
-  if ((now.hour() == 21) && (now.minute() == 20) && (now.second() == 0))
-  {
-    if (!hasRun)
-    {
+  if ((now.hour() == 21) && (now.minute() == 20) && (now.second() == 0)) {
+    if (!hasRun) {
       WriteDailySummary();
     }
   }
   /* Reset Counts at Midnight when controller running 24/7 */
-  if ((now.hour() == 0) && (now.minute() == 0) && (now.second() == 1))
-  {
+  if ((now.hour() == 0) && (now.minute() == 0) && (now.second() == 1)) {
     DayOfMonth = now.day();
     updateDayOfMonth();
     totalDailyCars = 0;
     updateDailyTotal();
     hasRun = false; // reset flag for next day summary
-    if (now.month() != 12 && now.day() != 24) // do not increment days running when closed on Christmas Eve
-    {
-      if (lastDayOfMonth != DayOfMonth)
-      {
+    if (now.month() != 12 && now.day() != 24) {  // do not increment days running when closed on Christmas Eve
+      if (lastDayOfMonth != DayOfMonth) {
         daysRunning++; 
         updateDaysRunning();
         getDayOfMonth();
@@ -1123,14 +1086,13 @@ void loop()
     } 
   }
   /* OR Reset/Update Counts wwhen Day Changes on reboot getting values from saved data */
-  if (now.day() != lastDayOfMonth)
-  {
+  if (now.day() != lastDayOfMonth) {
     DayOfMonth=now.day();
     updateDayOfMonth();
     totalDailyCars = 0;
     updateDailyTotal();
-    if (now.month() != 12 && now.day() != 24) // do not include days running when closed on Christmas Eve
-    {
+    // do not include days running when closed on Christmas Eve
+    if (now.month() != 12 && now.day() != 24) { 
       daysRunning++; 
       updateDaysRunning();
       getDayOfMonth();
@@ -1138,41 +1100,34 @@ void loop()
   }
 
   //Save Hourly Totals
-  if (now.minute()==0 && now.second()==0)
-  {
+  if (now.minute()==0 && now.second()==0) {
     updateHourlyTotals();
   }
   /* non-blocking WiFi and MQTT Connectivity Checks 
   First check if WiFi is connected */
-  if (wifiMulti.run() == WL_CONNECTED)
-  {
+  if (wifiMulti.run() == WL_CONNECTED) {
     /* If MQTT is not connected then Attempt MQTT Connection */
-    if (!mqtt_client.connected())
-    {
+    if (!mqtt_client.connected()) {
       Serial.print("hour = ");
       Serial.println(currentHr12);
       Serial.println("Attempting MQTT Connection");
       MQTTreconnect();
       start_MqttMillis = millis();
     } 
-    else 
-    {
+    else {
          //keep MQTT client connected when WiFi is connected
          mqtt_client.loop();
     }
   } 
-  else
-  {
+  else {
     // If WiFi if lost, then attemp non blocking WiFi Connection
-    if ((millis() - start_WiFiMillis) > wifi_connectioncheckMillis)
-    {
+    if ((millis() - start_WiFiMillis) > wifi_connectioncheckMillis) {
       setup_wifi();
       start_WiFiMillis = millis();
     }
   }    
 
   /* Display Program Data */
-
   display.clearDisplay();
   display.setTextSize(1);
   display.setCursor(0, line1);
@@ -1203,11 +1158,11 @@ void loop()
 
   /***** Display Time add leading 0 to Hours & display Hours *****/
   display.setTextSize(1);
-  if (currentHr12 < 10){
+  if (currentHr12 < 10) {
     display.setCursor(0, line2);
     display.print("0");
     display.println(currentHr12, DEC);
-  }else{
+  } else {
     display.setCursor(0, line2);
     display.println(currentHr12, DEC);
   }
@@ -1215,8 +1170,7 @@ void loop()
   display.println(":");
 
   /***** Add leading 0 To Mintes & display Minutes *****/
-  if (now.minute() < 10)
-  {  
+  if (now.minute() < 10) {  
     display.setCursor(20, line2);
     display.print("0");
     display.println(now.minute(), DEC);
@@ -1229,7 +1183,7 @@ void loop()
   display.println(":");
 
   /***** Add leading 0 To Seconds & display Seconds *****/
-  if (now.second() < 10){
+  if (now.second() < 10) {
     display.setCursor(41, line2);
     display.print("0");
     display.println(now.second(), DEC);
@@ -1265,20 +1219,11 @@ void loop()
 
   display.display();
 
-
   detectCars();  //State Machine for Car Detection
 
  //Added to kepp mqtt connection alive 10/11/24 gal
-  if  ((millis() - start_MqttMillis)> (mqttKeepAlive*1000))
-  {
+  if  ((millis() - start_MqttMillis)> (mqttKeepAlive*1000)) {
       KeepMqttAlive();
   }
-    /* Publish Mag Sensor State while Car is Passing */
-  /*if (magSensorState != lastmagSensorState)
-  {
-    publishMQTT(MQTT_PUB_TOPIC13, String(magSensorState));
-  }
-  lastbeamSensorState = beamSensorState;
-  lastmagSensorState = magSensorState;
-  */
+
 } /***** Repeat Loop *****/
