@@ -202,6 +202,7 @@ char topicBase[60];
 #define MQTT_SUB_TOPIC4  "msb/traffic/GateCounter/resetDaysRunning"
 #define MQTT_SUB_TOPIC5  "msb/traffic/GateCounter/gateCounterTimeout"
 #define MQTT_SUB_TOPIC6  "msb/traffic/GateCounter/waitDuration"
+
 //const uint32_t connectTimeoutMs = 10000;
 uint16_t connectTimeOutPerAP=5000;
 const char* ampm ="AM";
@@ -335,7 +336,6 @@ void setup_wifi() {
   ElegantOTA.onProgress(onOTAProgress);
   ElegantOTA.onEnd(onOTAEnd);
 
-
   server.begin();
   Serial.println("HTTP server started");
 
@@ -357,13 +357,11 @@ void publishDebugLog(const String &message) {
 
 void MQTTreconnect() {
   // Loop until we’re reconnected
-  while (!mqtt_client.connected())
-  {
+  while (!mqtt_client.connected()) {
     Serial.print("Attempting MQTT connection… ");
     String clientId = THIS_MQTT_CLIENT;
     // Attempt to connect
-    if (mqtt_client.connect(clientId.c_str(), mqtt_username, mqtt_password))
-    {
+    if (mqtt_client.connect(clientId.c_str(), mqtt_username, mqtt_password)) {
       display.setTextSize(1);
       display.setTextColor(WHITE);
       display.setCursor(0,line5);
@@ -378,8 +376,7 @@ void MQTTreconnect() {
       publishMQTT(MQTT_PUB_TOPIC4, String(inParkCars));
       // … and resubscribe
       mqtt_client.subscribe(MQTT_PUB_TOPIC0);
-    } 
-    else {
+    } else {
       Serial.print("failed, rc = ");
       Serial.print(mqtt_client.state());
       Serial.println(" try again in 5 seconds");
@@ -402,8 +399,7 @@ void MQTTreconnect() {
 
 void SetLocalTime() {
   struct tm timeinfo;
-  if(!getLocalTime(&timeinfo))
-  {
+  if(!getLocalTime(&timeinfo)) {
     Serial.println("Failed to obtain time. Using Compiled Date");
     return;
   }
@@ -445,18 +441,15 @@ void SetLocalTime() {
 // open DAILYTOT.txt to get initial dailyTotal value
 void getDailyTotal() {
   myFile = SD.open(fileName1,FILE_READ);
-  if (myFile)
-  {
+  if (myFile) {
     while (myFile.available()) {
     totalDailyCars = myFile.parseInt(); // read total
     Serial.print(" Daily cars from file = ");
     Serial.println(totalDailyCars);
-    }
-    myFile.close();
-    publishMQTT(MQTT_PUB_TOPIC3, String(totalDailyCars));
   }
-  else
-  {
+  myFile.close();
+  publishMQTT(MQTT_PUB_TOPIC3, String(totalDailyCars));
+  } else {
     Serial.print(F("SD Card: Cannot open the file: "));
     Serial.println(fileName1);
   }
@@ -465,19 +458,15 @@ void getDailyTotal() {
 // open ShowTot.txt to get totalCars for season
 void getShowTotal() {
   myFile = SD.open(fileName2,FILE_READ);
-  if (myFile)
-  {
-    while (myFile.available())
-    {
+  if (myFile) {
+    while (myFile.available()) {
       totalShowCars = myFile.parseInt(); // read total
       Serial.print(" Total cars from file = ");
       Serial.println(totalShowCars);
     }
     myFile.close();
     publishMQTT(MQTT_PUB_TOPIC10, String(totalShowCars));
-  }
-  else
-  {
+  } else {
     Serial.print(F("SD Card: Cannot open the file: "));
     Serial.println(fileName2);
   }
@@ -486,18 +475,15 @@ void getShowTotal() {
 // get the last calendar day used for reset daily counts)
 void getDayOfMonth() {
     myFile = SD.open(fileName3,FILE_READ);
-    if (myFile)
-    {
+    if (myFile) {
       while (myFile.available()) {
-      lastDayOfMonth = myFile.parseInt(); // read day Number
-      Serial.print(" Calendar Day = ");
-      Serial.println(lastDayOfMonth);
+        lastDayOfMonth = myFile.parseInt(); // read day Number
+        Serial.print(" Calendar Day = ");
+        Serial.println(lastDayOfMonth);
       }
-    myFile.close();
-    publishMQTT(MQTT_PUB_TOPIC9, String(lastDayOfMonth));
-    }
-    else
-    {
+      myFile.close();
+      publishMQTT(MQTT_PUB_TOPIC9, String(lastDayOfMonth));
+    } else {
       Serial.print(F("SD Card: Cannot open the file: "));
       Serial.println(fileName3);
     }
@@ -506,18 +492,15 @@ void getDayOfMonth() {
 // Days the show has been running)
 void getDaysRunning() {
   myFile = SD.open(fileName4,FILE_READ);
-  if (myFile)
-  {
+  if (myFile) {
     while (myFile.available()) {
-    daysRunning = myFile.parseInt(); // read day Number
-    Serial.print(" Days Running = ");
-    Serial.println(daysRunning);
+      daysRunning = myFile.parseInt(); // read day Number
+      Serial.print(" Days Running = ");
+      Serial.println(daysRunning);
     }
     myFile.close();
     publishMQTT(MQTT_PUB_TOPIC14, String(daysRunning));
-  }
-  else
-  {
+  } else {
     Serial.print("SD Card: Cannot open the file: ");
     Serial.println(fileName4);
   }
@@ -551,57 +534,50 @@ void updateDailyTotal() {
      myFile.close();
      publishMQTT(MQTT_PUB_TOPIC3, String(totalDailyCars));
      publishMQTT(MQTT_PUB_TOPIC4, String(inParkCars));
-  }
-  else {
-    Serial.print(F("SD Card: Cannot open the file: "));
-    Serial.println(fileName1);
+  } else {
+      Serial.print(F("SD Card: Cannot open the file: "));
+      Serial.println(fileName1);
   } 
   publishMQTT(MQTT_PUB_TOPIC3, String(totalDailyCars));
 }
 
 /* -----Increment the grand total cars file ----- */
 void updateShowTotal() {  
-   myFile = SD.open(fileName2,FILE_WRITE);
-   if (myFile) 
-   {
-      myFile.print(totalShowCars);
-      myFile.close();
-  }
-  else {
-    Serial.print(F("SD Card: Cannot open the file: "));
-    Serial.println(fileName2);
-  }
-   publishMQTT(MQTT_PUB_TOPIC10, String(totalShowCars));  
+    myFile = SD.open(fileName2,FILE_WRITE);
+    if (myFile) {
+        myFile.print(totalShowCars);
+        myFile.close();
+    } else {
+        Serial.print(F("SD Card: Cannot open the file: "));
+        Serial.println(fileName2);
+    }
+    publishMQTT(MQTT_PUB_TOPIC10, String(totalShowCars));  
 }
 
 /* -----Increment the calendar day file ----- */
 void updateDayOfMonth() {
-   myFile = SD.open(fileName3,FILE_WRITE);
-   if (myFile)
-   {
-      myFile.print(DayOfMonth);
-      myFile.close();
+    myFile = SD.open(fileName3,FILE_WRITE);
+    if (myFile) {
+        myFile.print(DayOfMonth);
+        myFile.close();
+      } else {
+        Serial.print(F("SD Card: Cannot open the file: "));
+        Serial.println(fileName3);
     }
-   else {
-    Serial.print(F("SD Card: Cannot open the file: "));
-    Serial.println(fileName3);
-   }
-    publishMQTT(MQTT_PUB_TOPIC9, String(DayOfMonth));
+      publishMQTT(MQTT_PUB_TOPIC9, String(DayOfMonth));
 }
 
 /* increment day of show since start */
 void updateDaysRunning() {
-  myFile = SD.open(fileName4,FILE_WRITE);
-  if (myFile) // check for an open failure
-  {
-    myFile.print(daysRunning);
-    myFile.close();
-  }
-  else {
-    Serial.print(F("SD Card: Cannot open the file: "));
-    Serial.println(fileName4);
-  }
-  publishMQTT(MQTT_PUB_TOPIC14, String(daysRunning));
+    myFile = SD.open(fileName4,FILE_WRITE);
+    if (myFile) {
+      myFile.print(daysRunning);
+      myFile.close();
+    } else {
+      Serial.print(F("SD Card: Cannot open the file: "));
+      Serial.println(fileName4);
+    }
+    publishMQTT(MQTT_PUB_TOPIC14, String(daysRunning));
 }
 
 void WriteDailySummary() {
@@ -615,20 +591,17 @@ void WriteDailySummary() {
   Serial.print(totalDailyCars) ;  
   // open file for writing Car Data
   myFile = SD.open(fileName5, FILE_APPEND);
-  if (myFile) 
-  {
+  if (myFile) {
     myFile.print(now.toString(buf2));
     myFile.print(", ");
-    for (int i = 17; i<=21; i++)
-      {
+    for (int i = 17; i<=21; i++) {
         myFile.print(dayHour[i]);
         myFile.print(", ");
-      }    
+    }    
     myFile.println (tempF); 
     myFile.close();
     Serial.println(F(" = Daily Summary Recorded SD Card."));
-  }
-  else {
+  } else {
     Serial.print(F("SD Card: Cannot open the file: "));
     Serial.println(fileName5);
   }
@@ -696,8 +669,7 @@ void updateCarCount() {
     //Serial.println(msg);
     //mqtt_client.publish("msbGateCount", msg);
     //}
-  } 
-  else {
+  } else {
     Serial.print(F("SD Card: Cannot open the file: "));
     Serial.println(fileName6);
   }
