@@ -3,6 +3,8 @@ Gate Counter by Greg Liebig gliebig@sheboyganlights.org
 Initial Build 12/5/2023 12:15 pm
 
 Changelog
+24.12.16.2 removed all references to tempF from RTC sensor moved to DHT22 sensor publish every 10 min publish temp & RH json format
+24.12.16.1 revised saveDailyShowSummary() times to 9:20 for gate counter
 24.12.15.4 revised saveDailyShowSummary() to average temps during show
 24.12.15.3 after debugging in field after 15.2
 24.12.15.2 Matched Car Counter procedures, Changed Names, Added webserver
@@ -92,7 +94,7 @@ D23 - MOSI
 #include <queue>  // Include queue for storing messages
 
 // ******************** CONSTANTS *******************
-#define FWVersion "24.12.15.4" // Firmware Version
+#define FWVersion "24.12.16.2" // Firmware Version
 #define OTA_Title "Gate Counter" // OTA Title
 #define magSensorPin 32 // Pin for Magnotometer Sensor
 #define beamSensorPin 33  //Pin for Reflective Beam Sensor
@@ -195,14 +197,14 @@ const char* ampm ="AM";
 const char* ntpServer = "pool.ntp.org";
 const long  gmtOffset_sec = -21600;
 const int   daylightOffset_sec = 3600;
-float tempF = 0.0;
+//float tempF = 0.0;
 
-// Initialize DHT sensor & Variables for temperature and humidity
+// Initialize DHT sensor & Variables for temperature and humidity readTempandRH()
 DHT dht(DHTPIN, DHTTYPE);
-float temperature = 0.0;  // Temperature
+float tempF = 0.0;  // Temperature
 float humidity = 0.0;     // Humidity
-unsigned long lastDHTReadMillis = 0; // Time since last sensor read
-const unsigned long dhtReadInterval = 600000; // Minimum interval between reads (10 seconds)
+//unsigned long lastDHTReadMillis = 0; // Time since last sensor read
+//const unsigned long dhtReadInterval = 600000; // Minimum interval between reads (10 seconds)
 
 /** Display Definitions & variables **/
 Adafruit_SSD1306 display = Adafruit_SSD1306(128, 64, &Wire, -1);
@@ -992,8 +994,8 @@ void saveDailyShowSummary() {
         totalBefore5 += hourlyCarCount[i];
     }
 
-    // Include additional cars detected between 9:00 PM and 9:10 PM
-    if (now.hour() == 21 && now.minute() <= 10) {
+    // Include additional cars detected between 9:00 PM and 9:20 PM
+    if (now.hour() == 21 && now.minute() <= 20) {
         cumulative9PM += hourlyCarCount[21];
     }
 
@@ -1426,8 +1428,13 @@ void initSDCard() {
   display.display();
 }
 
-void readTempandRH () {
-  unsigned long currentMillis = millis();
+void readTempandRH() {
+    static unsigned long lastDHTReadMillis = 0;    // Last time temperature was read
+    static unsigned long lastDHTPrintMillis = 0;   // Last time temperature was printed
+    const unsigned long dhtReadInterval = 10000;  // 10 seconds interval for reading temp
+    const unsigned long dhtPrintInterval = 600000; // 10 minutes interval for printing temp
+
+    unsigned long currentMillis = millis();
 
     // Check if it's time to read the sensor
     if (currentMillis - lastDHTReadMillis >= dhtReadInterval) {
@@ -1435,26 +1442,26 @@ void readTempandRH () {
 
         // Read temperature and humidity
         humidity = dht.readHumidity();
-        tempF = dht.readTemperature(true); // Default is Celsius
-        // For Fahrenheit: dht.readTemperature(true);
+        tempF = dht.readTemperature(true); // Read Fahrenheit directly
 
         // Check if the readings are valid
-        if (isnan(temperature) || isnan(humidity)) {
+        if (isnan(tempF) || isnan(humidity)) {
             Serial.println("Failed to read from DHT sensor!");
-        } else {
-            // Display the readings
-            Serial.print("Temperature: ");
-            Serial.print(tempF);
-            Serial.println(" °F");
-
-            Serial.print("Humidity: ");
-            Serial.print(humidity);
-            Serial.println(" %");
-
-            // Use the temperature value in your application
-            // Example: publish to MQTT
-            // publishMQTT(MQTT_PUB_TEMP, String(temperature));
+            return; // Exit function if the readings are invalid
         }
+
+        // Publish the temperature and humidity as JSON to MQTT
+        char jsonPayload[100];
+        snprintf(jsonPayload, sizeof(jsonPayload), "{\"tempF\": %.1f, \"humidity\": %.1f}", tempF, humidity);
+        publishMQTT(MQTT_PUB_TEMP, String(jsonPayload));
+    }
+
+    // Check if it's time to print the readings
+    if (currentMillis - lastDHTPrintMillis >= dhtPrintInterval) {
+        lastDHTPrintMillis = currentMillis;
+
+        // Print temperature and humidity readings
+        Serial.printf("Temperature: %.1f °F, Humidity: %.1f %%\n", tempF, humidity);
     }
 }
 
@@ -1503,8 +1510,8 @@ void timeTriggeredEvents() {
         flagDailyShowStartReset = true;
     }
 
-    // Save daily summary at 9:10 PM
-    if (now.hour() == 21 && now.minute() == 10 && !flagDailyShowSummarySaved) {
+    // Save daily summary at 9:20 PM
+    if (now.hour() == 21 && now.minute() == 20 && !flagDailyShowSummarySaved) {
         saveDailyShowSummary();
         publishMQTT(MQTT_DEBUG_LOG, "Daily Show Summary Saved");
         flagDailyShowSummarySaved = true;
@@ -1538,7 +1545,7 @@ void timeTriggeredEvents() {
 // Update OLED Display while running
 void updateDisplay() {
     DateTime now = rtc.now();
-    float tempF = ((rtc.getTemperature() * 9 / 5) + 32); // Get temperature in Fahrenheit
+    //float tempF = ((rtc.getTemperature() * 9 / 5) + 32); // Get temperature in Fahrenheit
     int currentHr24 = now.hour();
     int currentHr12 = currentHr24 > 12 ? currentHr24 - 12 : (currentHr24 == 0 ? 12 : currentHr24);
     const char* ampm = currentHr24 < 12 ? "AM" : "PM";
