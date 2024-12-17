@@ -3,6 +3,9 @@ Gate Counter by Greg Liebig gliebig@sheboyganlights.org
 Initial Build 12/5/2023 12:15 pm
 
 Changelog
+24.12.16.5 Added logging function to plot sensor data. Changes getHourlyData() & saveHoulyCounts()
+24.12.16.4 Reset counts was incorrect due to syncing code from car counter to gate counter should be 5:10 pm for gate counter
+24.12.16.3 was not incrementing hourly car counts and writing multiple rows for the same date
 24.12.16.2 removed all references to tempF from RTC sensor moved to DHT22 sensor publish every 10 min publish temp & RH json format
 24.12.16.1 revised saveDailyShowSummary() times to 9:20 for gate counter
 24.12.15.4 revised saveDailyShowSummary() to average temps during show
@@ -94,7 +97,7 @@ D23 - MOSI
 #include <queue>  // Include queue for storing messages
 
 // ******************** CONSTANTS *******************
-#define FWVersion "24.12.16.2" // Firmware Version
+#define FWVersion "24.12.16.5" // Firmware Version
 #define OTA_Title "Gate Counter" // OTA Title
 #define magSensorPin 32 // Pin for Magnotometer Sensor
 #define beamSensorPin 33  //Pin for Reflective Beam Sensor
@@ -139,7 +142,8 @@ char topicBase[60];
 #define MQTT_SUB_TOPIC3  "msb/traffic/GateCounter/resetDayOfMonth"    // Reset Calendar Day
 #define MQTT_SUB_TOPIC4  "msb/traffic/GateCounter/resetDaysRunning"   // Reset Days Running
 #define MQTT_SUB_TOPIC5  "msb/traffic/GateCounter/gateCounterTimeout" // Reset Timeout if car leaves detection Zone
-#define MQTT_SUB_TOPIC6  "msb/traffic/GateCounter/waitDuration"       // Reset sync time from magSensor trip to beamSensor Active
+#define MQTT_SUB_WAITMS  "msb/traffic/GateCounter/waitDuration"       // Reset sync time from magSensor trip to beamSensor Active
+#define MQTT_SUB_LOGGING "msb/traffic/GateCounger/loggingEnabled"     // toggle logging function
 
 // State Machine for Car Counting
 enum CarDetectionState {
@@ -234,6 +238,7 @@ char mqtt_server[] = mqtt_Server;
 char mqtt_username[] = mqtt_UserName;
 char mqtt_password[] = mqtt_Password;
 const int mqtt_port = mqtt_Port;
+bool loggingEnabled = false; // Default: Logging is OFF
 bool mqtt_connected = false;
 bool wifi_connected = false;
 int wifi_connect_attempts = 5;
@@ -294,6 +299,7 @@ const String fileName6 = "/GateLog.csv"; // GateLog.csv file to store all car co
 const String fileName7 = "/GateDailySummary.csv"; // Show summary of counts during show (5:00pm to 9:10pm)
 const String fileName8 = "/data/index.html"; // data folder and index.html for serving files OTA
 const String fileName9 = "/data/style.css"; // data folder and index.html for serving files OTA
+const String fileName10 = "/SensorLog.csv"; // sensorLog.csv for recording gate sensors for plotting
 //const String fileName7 = "/SensorBounces.csv"; // /SensorBounces.csv file to store all bounce counts for season
 
 /***** Arrays for Hourly Totals/Averages *****/
@@ -365,9 +371,6 @@ void SetLocalTime() {
   Serial.println(timeStringBuff);
   rtc.adjust(DateTime(timeStringBuff));
 }
-
-
-
 
 void setup_wifi()  {
     Serial.println("Connecting to WiFi");
@@ -526,8 +529,6 @@ void deleteSDFile(AsyncWebServerRequest *request) {
 }
 //END OTA SD Card File Operations
 
-
-
 // HTML Content now served from /data/index.html and /data/style.css
 void setupServer() {
     // Serve HTML file
@@ -611,8 +612,6 @@ void setupServer() {
     server.begin();
     Serial.println("HTTP server started");
 }
-
-
 
 void checkWiFiConnection() {
     static unsigned long lastWiFiCheck = 0;
@@ -727,7 +726,7 @@ void MQTTreconnect() {
             Serial.println("connected.");
             display.setTextSize(1);
             display.setTextColor(WHITE);
-            display.setCursor(0,line1);
+            display.setCursor(0,line5);
             display.println("MQTT Connect");
             display.display();    
             Serial.println("connected!");
@@ -740,13 +739,14 @@ void MQTTreconnect() {
 
             // Subscribe to necessary topics
             mqtt_client.subscribe(MQTT_PUB_HELLO);
-            mqtt_client.subscribe(MQTT_SUB_TOPIC0); // Get counts from Car Counter
-            mqtt_client.subscribe(MQTT_SUB_TOPIC1); // Reset Daily Count
-            mqtt_client.subscribe(MQTT_SUB_TOPIC2); // Reset Show Count
-            mqtt_client.subscribe(MQTT_SUB_TOPIC3); // Reset Day of Month
-            mqtt_client.subscribe(MQTT_SUB_TOPIC4); // Reset Days Running
-            mqtt_client.subscribe(MQTT_SUB_TOPIC5); // Update Car Counter Timeout
-            mqtt_client.subscribe(MQTT_SUB_TOPIC6); // Update Sensor Wait Duration
+            mqtt_client.subscribe(MQTT_SUB_TOPIC0);  // Get counts from Car Counter
+            mqtt_client.subscribe(MQTT_SUB_TOPIC1);  // Reset Daily Count
+            mqtt_client.subscribe(MQTT_SUB_TOPIC2);  // Reset Show Count
+            mqtt_client.subscribe(MQTT_SUB_TOPIC3);  // Reset Day of Month
+            mqtt_client.subscribe(MQTT_SUB_TOPIC4);  // Reset Days Running
+            mqtt_client.subscribe(MQTT_SUB_TOPIC5);  // Update Car Counter Timeout
+            mqtt_client.subscribe(MQTT_SUB_WAITMS);  // Update Sensor Wait Duration
+            mqtt_client.subscribe(MQTT_SUB_LOGGING); // Toggle Logging Function
 
             // Log subscriptions
             Serial.println("Subscribed to MQTT topics.");
@@ -758,14 +758,13 @@ void MQTTreconnect() {
             Serial.println(". Will retry...");
             display.setTextSize(1);
             display.setTextColor(WHITE);
-            display.setCursor(0,line1);
+            display.setCursor(0,line6);
             display.println("MQTT Error");
             display.display();
         }
     }
 }
 /***** END MQTT SECTION *****/
-
 
 // =========== GET SAVED SETUP FROM SD CARD ==========
 // open DAILYTOT.txt to get initial dailyTotal value
@@ -840,43 +839,64 @@ void getDaysRunning() {
 
 /** Get hourly car counts on reboot */
 void getHourlyData() {
+    DateTime now = rtc.now();
+    char dateBuffer[12];
+    snprintf(dateBuffer, sizeof(dateBuffer), "%04d-%02d-%02d", now.year(), now.month(), now.day());
+
+    // Open the file for reading
     File file = SD.open(fileName5, FILE_READ);
     if (!file) {
-        Serial.println("Failed to open file for reading. Initializing hourly data.");
-        memset(hourlyCarCount, 0, sizeof(hourlyCarCount)); // Reset to 0
+        Serial.println("Failed to open GateHourlyData.csv. Resetting hourly data.");
+        publishMQTT(MQTT_DEBUG_LOG, "Failed to open GateHourlyData.csv. Resetting hourly data.");
+        memset(hourlyCarCount, 0, sizeof(hourlyCarCount)); // Reset to zeros
         return;
     }
 
-    String lastLine;
+    bool rowFound = false;
+
+    // Read the file line by line
     while (file.available()) {
-        lastLine = file.readStringUntil('\n'); // Read until the end of the file
+        String line = file.readStringUntil('\n');
+        if (line.startsWith(dateBuffer)) {
+            // Parse the row for the current date
+            rowFound = true;
+
+            int parsedValues = sscanf(line.c_str(),
+                                      "%*[^,],%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d",
+                                      &hourlyCarCount[0], &hourlyCarCount[1], &hourlyCarCount[2], &hourlyCarCount[3],
+                                      &hourlyCarCount[4], &hourlyCarCount[5], &hourlyCarCount[6], &hourlyCarCount[7],
+                                      &hourlyCarCount[8], &hourlyCarCount[9], &hourlyCarCount[10], &hourlyCarCount[11],
+                                      &hourlyCarCount[12], &hourlyCarCount[13], &hourlyCarCount[14], &hourlyCarCount[15],
+                                      &hourlyCarCount[16], &hourlyCarCount[17], &hourlyCarCount[18], &hourlyCarCount[19],
+                                      &hourlyCarCount[20], &hourlyCarCount[21], &hourlyCarCount[22], &hourlyCarCount[23]);
+
+            if (parsedValues == 24) {
+                Serial.println("Successfully loaded hourly data for today.");
+                publishMQTT(MQTT_DEBUG_LOG, "Successfully loaded hourly data for today.");
+                for (int i = 0; i < 24; i++) {
+                    Serial.printf("Hour %02d: %d cars\n", i, hourlyCarCount[i]);
+                    char debugMsg[50];
+                    snprintf(debugMsg, sizeof(debugMsg), "Hour %02d: %d cars", i, hourlyCarCount[i]);
+                    publishMQTT(MQTT_DEBUG_LOG, String(debugMsg));
+                }
+            } else {
+                Serial.println("Error parsing today's row. Resetting hourly data.");
+                publishMQTT(MQTT_DEBUG_LOG, "Error parsing today's row. Resetting hourly data.");
+                memset(hourlyCarCount, 0, sizeof(hourlyCarCount)); // Reset to zeros
+            }
+            break; // Exit loop after processing today's row
+        }
     }
     file.close();
 
-    if (lastLine.length() > 0) {
-        char dateBuffer[12];
-        int parsedColumns = sscanf(lastLine.c_str(),
-                                   "%[^,],%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d",
-                                   dateBuffer,
-                                   &hourlyCarCount[0], &hourlyCarCount[1], &hourlyCarCount[2], &hourlyCarCount[3],
-                                   &hourlyCarCount[4], &hourlyCarCount[5], &hourlyCarCount[6], &hourlyCarCount[7],
-                                   &hourlyCarCount[8], &hourlyCarCount[9], &hourlyCarCount[10], &hourlyCarCount[11],
-                                   &hourlyCarCount[12], &hourlyCarCount[13], &hourlyCarCount[14], &hourlyCarCount[15],
-                                   &hourlyCarCount[16], &hourlyCarCount[17], &hourlyCarCount[18], &hourlyCarCount[19],
-                                   &hourlyCarCount[20], &hourlyCarCount[21], &hourlyCarCount[22], &hourlyCarCount[23]);
-
-        if (parsedColumns < 25) {
-            Serial.printf("Error parsing hourly data. Expected 25 columns but found: %d\n", parsedColumns);
-            memset(hourlyCarCount, 0, sizeof(hourlyCarCount)); // Reset to 0
-        } else {
-            Serial.println("Hourly data successfully loaded from file:");
-            Serial.println(lastLine);
-        }
-    } else {
-        Serial.println("File is empty. Initializing hourly data.");
-        memset(hourlyCarCount, 0, sizeof(hourlyCarCount)); // Reset to 0
+    if (!rowFound) {
+        Serial.println("No data for today found. Resetting hourly data.");
+        publishMQTT(MQTT_DEBUG_LOG, "No data for today found. Resetting hourly data.");
+        memset(hourlyCarCount, 0, sizeof(hourlyCarCount)); // Reset to zeros
     }
 }
+
+
 
 
 /***** UPDATE and SAVE TOTALS TO SD CARD *****/
@@ -938,41 +958,81 @@ void saveDaysRunning() {
 // Save cars counted each hour in the event of a reboot
 void saveHourlyCounts() {
     DateTime now = rtc.now();
-    static int lastSavedDay = -1; // Track the last day saved to avoid duplicate writes
-
-    int currentDay = now.day();
-
-    // Ensure this function only runs once per day
-    if (currentDay == lastSavedDay) {
-        return;
-    }
-
-    lastSavedDay = currentDay; // Update the last saved day
-
     char dateBuffer[12];
     snprintf(dateBuffer, sizeof(dateBuffer), "%04d-%02d-%02d", now.year(), now.month(), now.day());
 
-    File hourlyFile = SD.open(fileName5, FILE_APPEND);
-    if (!hourlyFile) {
-        Serial.println("Failed to open file for writing hourly data.");
-        return;
+    int currentHour = now.hour(); // Get the current hour (0-23)
+
+    File file = SD.open(fileName5, FILE_READ);
+    String updatedContent = "";
+    bool rowExists = false;
+
+    if (file) {
+        while (file.available()) {
+            String line = file.readStringUntil('\n');
+            if (line.startsWith(dateBuffer)) {
+                rowExists = true;
+                updatedContent += dateBuffer; // Start with the date
+
+                int valueIndex = 0; // Track which value we are processing
+                int lastCommaIndex = line.indexOf(",") + 1; // Start after the date
+                
+                // Parse each value in the line
+                for (int i = 0; i < 24; i++) {
+                    int nextCommaIndex = line.indexOf(",", lastCommaIndex);
+                    String currentValue;
+
+                    if (nextCommaIndex != -1) {
+                        currentValue = line.substring(lastCommaIndex, nextCommaIndex);
+                        lastCommaIndex = nextCommaIndex + 1;
+                    } else {
+                        currentValue = line.substring(lastCommaIndex);
+                    }
+
+                    // Replace value for the current hour
+                    if (i == currentHour) {
+                        updatedContent += "," + String(hourlyCarCount[i]);
+                    } else {
+                        updatedContent += "," + currentValue;
+                    }
+                }
+                updatedContent += "\n";
+
+                // Publish current hour's data to MQTT
+                char topic[60];
+                snprintf(topic, sizeof(topic), "%s/hour%02d", MQTT_PUB_CARS_HOURLY, currentHour);
+                publishMQTT(topic, String(hourlyCarCount[currentHour]));
+            } else {
+                updatedContent += line + "\n"; // Preserve other rows
+            }
+        }
+        file.close();
     }
 
-    // Write the date as the first column
-    hourlyFile.print(dateBuffer);
+    // If no row exists for today, create a new one
+    if (!rowExists) {
+        updatedContent += dateBuffer;
+        for (int i = 0; i < 24; i++) {
+            updatedContent += (i == currentHour) ? "," + String(hourlyCarCount[i]) : ",0";
+        }
+        updatedContent += "\n";
 
-    // Write the 24 hourly counts as subsequent columns
-    for (int i = 0; i < 24; i++) {
-        hourlyFile.printf(",%d", hourlyCarCount[i]);
+        // Publish current hour's data to MQTT
+        char topic[60];
+        snprintf(topic, sizeof(topic), "%s/hour%02d", MQTT_PUB_CARS_HOURLY, currentHour);
+        publishMQTT(topic, String(hourlyCarCount[currentHour]));
     }
-    hourlyFile.println(); // Newline to complete the row
 
-    hourlyFile.close();
-
-    Serial.println("Hourly data saved successfully as a row:");
-    Serial.println(dateBuffer);
+    // Write updated content back to the file
+    file = SD.open(fileName5, FILE_WRITE);
+    if (file) {
+        file.print(updatedContent);
+        file.close();
+        Serial.printf("Hourly counts for hour %02d saved and published.\n", currentHour);
+    } else {
+        Serial.println("Failed to open GateHourlyData.csv for writing.");
+    }
 }
-
 
 // Save and Publish Show Totals
 void saveDailyShowSummary() {
@@ -1147,15 +1207,25 @@ void callback(char* topic, byte* payload, unsigned int length) {
     gateCounterTimeout = atoi(message);
     Serial.println(F(" Gate Counter Alarm Timer Updated"));
     publishMQTT(MQTT_PUB_HELLO, "Gate Counter Timeout Updated");
-  }  else if (strcmp(topic, MQTT_SUB_TOPIC6) == 0) {
+  }  else if (strcmp(topic, MQTT_SUB_WAITMS) == 0) {
     // Topic used to change waitDuration  
     //gateCounterTimeout = atoi((char *)payload);
     waitDuration = atoi(message);
     Serial.println(F(" Gate Counter waitDuration"));
     publishMQTT(MQTT_PUB_HELLO, "Gate Counter waitDuration Updated");
-  }  
-} /***** END OF CALLBACK TOPICS *****/
-
+  } else if (strcmp(topic, MQTT_SUB_LOGGING) == 0) {
+        if (strcmp(message, "1") == 0) {
+            loggingEnabled = true;
+            Serial.println("Sensor logging ENABLED.");
+            publishMQTT(MQTT_DEBUG_LOG, "Sensor logging enabled.");
+        } else if (strcmp(message, "0") == 0) {
+            loggingEnabled = false;
+            Serial.println("Sensor logging DISABLED.");
+            publishMQTT(MQTT_DEBUG_LOG, "Sensor logging disabled.");
+        }
+    }
+}
+/***** END OF CALLBACK TOPICS *****/
 
 /***** IDLE STUFF  *****/
 
@@ -1196,6 +1266,33 @@ void averageHourlyTemp() {
     tempReadingsCount++;
 }
 
+void logSensorStates() {
+    if (!loggingEnabled) return; // Do not log if logging is disabled
+
+    static unsigned long lastLogTime = 0; // Prevent excessive logging
+    unsigned long currentTime = millis();
+
+    if (currentTime - lastLogTime >= 100) { // Log every 100 ms
+        lastLogTime = currentTime;
+
+        // Read sensor states
+        beamSensorState = digitalRead(beamSensorPin);
+        magSensorState = !digitalRead(magSensorPin); // Active high
+
+        // Log to Serial Monitor (or save to SD card)
+        Serial.printf("%lu,%d,%d\n", currentTime, beamSensorState, magSensorState);
+
+        // OPTIONAL: Log to CSV file on SD card
+        File logFile = SD.open(fileName10, FILE_APPEND);
+        if (logFile) {
+            logFile.printf("%lu,%d,%d\n", currentTime, beamSensorState, magSensorState);
+            logFile.close();
+        } else {
+            Serial.println("Failed to open sensorLog.csv");
+        }
+    }
+}
+
 void countTheCar() {
   DateTime now = rtc.now();
   Serial.print(now.toString(buf3));
@@ -1205,6 +1302,9 @@ void countTheCar() {
   //Serial.print(String("DateTime::TIMESTAMP_FULL:\t")+now.timestamp(DateTime::TIMESTAMP_FULL));
   //Serial.print(",1,"); 
   totalDailyCars ++;
+  // Increment hourly car count
+  int currentHour = now.hour();
+  hourlyCarCount[currentHour]++;
   saveDailyTotal(); // Update Daily Total on SD Card to retain numbers with reboot
   if (showTime == true) {
     totalShowCars ++;  // increase Show Count only when show is open
@@ -1252,20 +1352,20 @@ void countTheCar() {
   }
 } 
 
-
-    /* 24/10/14 - Both beams are normally open. Optocoupler reads HIGH when sensors are NOT tripped
+  /* 24/10/14 - Both beams are normally open. Optocoupler reads HIGH when sensors are NOT tripped
   changed code to read inverse of pin. Changing pinmode from pullup or pulldown made no difference 
   Continually Read state of sensors. REVISED 12/12/24 with new Through Beam Sensor 
   When the magSensor drops LOW during the IDLE state and beamSensor is also LOW, reset magSensorWasTriggered
-   to prepare for a new car.*/
+  to prepare for a new car.*/
 void detectCar() {
     magSensorState = !digitalRead(magSensorPin);  // Assuming active high
     beamSensorState = digitalRead(beamSensorPin); // Assuming active low (Normally closed = 1)
+    logSensorStates();                            // log sensor states if active via MQTT Message can turn off/on via home assistant
 
     static unsigned long beamSensorHighTime = 0;  // Time when beamSensor goes HIGH
-    static unsigned long magSensorTripTime = 0; // Time when magSensor last went HIGH
-    static bool magSensorTriggered = false;      // Tracks if magSensor was triggered
-    static bool carCounted = false;              // Tracks if the car has been counted
+    static unsigned long magSensorTripTime = 0;   // Time when magSensor last went HIGH
+    static bool magSensorTriggered = false;       // Tracks if magSensor was triggered
+    static bool carCounted = false;               // Tracks if the car has been counted
 
     // Magnetic Sensor State Change
     if (magSensorState != prevMagSensorState) {
@@ -1299,8 +1399,8 @@ void detectCar() {
         if (beamSensorState == 0) {  // Beam sensor LOW: Object exited detection zone
             unsigned long beamHighDuration = millis() - beamSensorHighTime;
 
-            // Only count the car if beam HIGH duration >= 1200ms and magSensor triggered
-            if (beamHighDuration >= 1200 && magSensorTriggered) {
+            // Only count the car if beam HIGH duration >= 1300ms and magSensor triggered
+            if (beamHighDuration >= 1300 && magSensorTriggered) {
                 if (!carCounted) {
                     countTheCar(); // Count the car
                     publishMQTT(MQTT_PUB_BEAMHIGH_MS, String(beamHighDuration)); // Publish beam HIGH duration
@@ -1321,7 +1421,7 @@ void detectCar() {
         unsigned long beamDuration = millis() - beamSensorHighTime;
 
         // If beam is HIGH for over 1200ms without magSensor trigger, treat it as uncertain
-        if (beamDuration > 1200 && !magSensorTriggered) {
+        if (beamDuration > 1300 && !magSensorTriggered) {
             publishDebugLog("Beam sensor HIGH for over 1200ms without mag confirmation. Possible false positive.");
             carCounted = true; // Avoid re-processing this beam event
         }
@@ -1502,11 +1602,11 @@ void timeTriggeredEvents() {
         flagDaysRunningReset = true;
     }
 
-    // Reset total daily cars for show to 0 at 4:59 PM
-    if (now.hour() == 16 && now.minute() == 59 && !flagDailyShowStartReset) {
+    // Reset total daily cars for show to 0 at 5:10 PM
+    if (now.hour() == 17 && now.minute() == 10 && !flagDailyShowStartReset) {
         totalDailyCars = 0;
         saveDailyTotal();
-        publishMQTT(MQTT_DEBUG_LOG, "Total cars reset at 4:59 PM");
+        publishMQTT(MQTT_DEBUG_LOG, "Total Exit Cars Reset at 5:10 PM");
         flagDailyShowStartReset = true;
     }
 
@@ -1689,6 +1789,8 @@ void setup() {
     checkAndCreateFile(fileName7, "Date,DaysRunning,Before5,6PM,7PM,8PM,9PM,ShowTotal,DailyAvgTemp");
     checkAndCreateFile(fileName8);
     checkAndCreateFile(fileName9);
+    checkAndCreateFile(fileName10, "ms,Beam,mag");
+
     // Required Hourly Data Files
     createAndInitializeHourlyFile(fileName5);
 
