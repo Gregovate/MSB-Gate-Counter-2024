@@ -3,6 +3,8 @@ Gate Counter by Greg Liebig gliebig@sheboyganlights.org
 Initial Build 12/5/2023 12:15 pm
 
 Changelog
+24.12.17.2 modified detectCar() based on logging data increased predetect mag sensor to 750ms
+24.12.17.1 modified downloadSDFile(AsyncWebServerRequest *request) to save file with correct filename
 24.12.16.5 Added logging function to plot sensor data. Changes getHourlyData() & saveHoulyCounts()
 24.12.16.4 Reset counts was incorrect due to syncing code from car counter to gate counter should be 5:10 pm for gate counter
 24.12.16.3 was not incrementing hourly car counts and writing multiple rows for the same date
@@ -97,7 +99,7 @@ D23 - MOSI
 #include <queue>  // Include queue for storing messages
 
 // ******************** CONSTANTS *******************
-#define FWVersion "24.12.16.5" // Firmware Version
+#define FWVersion "24.12.17.2" // Firmware Version
 #define OTA_Title "Gate Counter" // OTA Title
 #define magSensorPin 32 // Pin for Magnotometer Sensor
 #define beamSensorPin 33  //Pin for Reflective Beam Sensor
@@ -143,7 +145,7 @@ char topicBase[60];
 #define MQTT_SUB_TOPIC4  "msb/traffic/GateCounter/resetDaysRunning"   // Reset Days Running
 #define MQTT_SUB_TOPIC5  "msb/traffic/GateCounter/gateCounterTimeout" // Reset Timeout if car leaves detection Zone
 #define MQTT_SUB_WAITMS  "msb/traffic/GateCounter/waitDuration"       // Reset sync time from magSensor trip to beamSensor Active
-#define MQTT_SUB_LOGGING "msb/traffic/GateCounger/loggingEnabled"     // toggle logging function
+#define MQTT_SUB_LOGGING "msb/traffic/GateCounter/loggingEnabled"     // toggle logging function
 
 // State Machine for Car Counting
 enum CarDetectionState {
@@ -442,8 +444,13 @@ void downloadSDFile(AsyncWebServerRequest *request) {
         return;
     }
 
-    request->send(SD, filename, "application/octet-stream");
+    // Add Content-Disposition header for proper filename handling
+    AsyncWebServerResponse *response = request->beginResponse(SD, filename, "application/octet-stream");
+    response->addHeader("Content-Disposition", "attachment; filename=\"" + String(request->getParam("filename")->value()) + "\"");
+
+    request->send(response);
 }
+
 
 void uploadSDFile(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
     static File uploadFile; // Keep track of the currently uploading file
@@ -1360,73 +1367,82 @@ void countTheCar() {
 void detectCar() {
     magSensorState = !digitalRead(magSensorPin);  // Assuming active high
     beamSensorState = digitalRead(beamSensorPin); // Assuming active low (Normally closed = 1)
-    logSensorStates();                            // log sensor states if active via MQTT Message can turn off/on via home assistant
+    logSensorStates();                            // Log sensor states if enabled
 
-    static unsigned long beamSensorHighTime = 0;  // Time when beamSensor goes HIGH
-    static unsigned long magSensorTripTime = 0;   // Time when magSensor last went HIGH
-    static bool magSensorTriggered = false;       // Tracks if magSensor was triggered
+    static unsigned long beamSensorHighTime = 0;  // Time when BeamSensor goes HIGH
+    static unsigned long magSensorTripTime = 0;   // Time when MagSensor last triggered
+    static bool magSensorTriggered = false;       // Tracks if MagSensor was triggered
     static bool carCounted = false;               // Tracks if the car has been counted
+    static int lastBeamSensorState = -1;          // To track BeamSensor state changes
+    static int lastMagSensorState = -1;           // To track MagSensor state changes
 
-    // Magnetic Sensor State Change
-    if (magSensorState != prevMagSensorState) {
-        publishMQTT(MQTT_PUB_MAG_SENSOR_STATE, String(magSensorState)); // Publish magSensor state
-        prevMagSensorState = magSensorState;
+    // Log state changes only if enabled and changed
+    if (beamSensorState != lastBeamSensorState) {
+        logSensorStates();
+        publishMQTT(MQTT_PUB_BEAM_SENSOR_STATE, String(beamSensorState));
+        lastBeamSensorState = beamSensorState;
+    }
 
-        if (magSensorState == 1) { // Magnetic sensor triggered
-            magSensorTripTime = millis();
-            magSensorTriggered = true; // Confirm vehicle presence
-            publishDebugLog("Magnetic sensor triggered. Car validated.");
+    if (magSensorState != lastMagSensorState) {
+        logSensorStates();
+        publishMQTT(MQTT_PUB_MAG_SENSOR_STATE, String(magSensorState));
+        lastMagSensorState = magSensorState;
+    }
+
+    // MagSensor Triggered
+    if (magSensorState == 1) {
+        magSensorTripTime = millis();  // Record MagSensor trigger time
+        magSensorTriggered = true;    // Mark MagSensor as triggered
+        logSensorStates();
+        publishDebugLog("MagSensor triggered!");
+    }
+
+    // BeamSensor Rising Edge
+    if (beamSensorState == 1 && beamSensorHighTime == 0) {
+        beamSensorHighTime = millis();  // Record BeamSensor high time
+        carCounted = false;             // Reset car counting for this cycle
+        logSensorStates();
+        publishDebugLog("BeamSensor HIGH detected!");
+
+        // Check for MagSensor pre-trigger (within 750ms)
+        if (millis() - magSensorTripTime <= 750) {
+            magSensorTriggered = true;
+            logSensorStates();
+            publishDebugLog("MagSensor pre-trigger confirmed!");
         }
     }
 
-    // Beam Sensor State Change
-    if (beamSensorState != prevBeamSensorState) {
-        publishMQTT(MQTT_PUB_BEAM_SENSOR_STATE, String(beamSensorState)); // Publish beamSensor state
-        prevBeamSensorState = beamSensorState;
+    // BeamSensor Falling Edge
+    if (beamSensorState == 0 && beamSensorHighTime > 0) {
+        unsigned long beamHighDuration = millis() - beamSensorHighTime;
+        publishDebugLog("BeamSensor LOW detected. Duration: " + String(beamHighDuration) + " ms");
+        
+        // Publish the duration the BeamSensor was HIGH
+        publishMQTT(MQTT_PUB_TTP, String(beamHighDuration));
+        logSensorStates();
 
-        if (beamSensorState == 1) {  // Beam sensor HIGH: Object entering detection zone
-            beamSensorHighTime = millis();
-            carCounted = false; // Reset car counting for this beam HIGH event
-            publishDebugLog("Beam sensor HIGH. Monitoring for vehicle confirmation.");
-
-            // Check if magSensor triggered within 500ms before beamSensor HIGH
-            if ((millis() - magSensorTripTime) <= 500) {
-                magSensorTriggered = true; // Confirm vehicle presence
-                publishDebugLog("MagSensor triggered within 500ms of BeamSensor HIGH. Car validated.");
+        // Confirm car if:
+        // 1. Beam HIGH duration >= 1300ms, OR
+        // 2. MagSensor triggered during or before BeamSensor activation
+        if (beamHighDuration >= 1300 || magSensorTriggered) {
+            if (!carCounted) {
+                timeToPassMS = millis() - beamSensorHighTime;
+                countTheCar();  // Count the car
+                carCounted = true;  // Avoid duplicate counts
+                logSensorStates();
+                publishDebugLog("Car confirmed and counted!");
             }
+        } else {
+            publishDebugLog("No car detected (Beam duration too short or no MagSensor trigger).");
         }
 
-        if (beamSensorState == 0) {  // Beam sensor LOW: Object exited detection zone
-            unsigned long beamHighDuration = millis() - beamSensorHighTime;
-
-            // Only count the car if beam HIGH duration >= 1300ms and magSensor triggered
-            if (beamHighDuration >= 1300 && magSensorTriggered) {
-                if (!carCounted) {
-                    countTheCar(); // Count the car
-                    publishMQTT(MQTT_PUB_BEAMHIGH_MS, String(beamHighDuration)); // Publish beam HIGH duration
-                    publishDebugLog("Beam sensor LOW. Car confirmed and counted.");
-                    carCounted = true;
-                }
-            } else {
-                publishDebugLog("Beam sensor LOW. No valid vehicle detected.");
-            }
-
-            // Reset state after beamSensor LOW
-            magSensorTriggered = false;
-        }
-    }
-
-    // Timeout Handling: Check beamSensor HIGH duration without confirmation
-    if (beamSensorState == 1 && !carCounted) {
-        unsigned long beamDuration = millis() - beamSensorHighTime;
-
-        // If beam is HIGH for over 1200ms without magSensor trigger, treat it as uncertain
-        if (beamDuration > 1300 && !magSensorTriggered) {
-            publishDebugLog("Beam sensor HIGH for over 1200ms without mag confirmation. Possible false positive.");
-            carCounted = true; // Avoid re-processing this beam event
-        }
+        // Reset all states for the next detection
+        beamSensorHighTime = 0;
+        magSensorTriggered = false;
+        carCounted = false;
     }
 }
+
 // END CAR DETECTION
 
 // CHECK AND CREATE FILES on SD Card and WRITE HEADERS if Needed
@@ -1816,6 +1832,9 @@ void loop() {
     DateTime now = rtc.now();
     int currentHour = now.hour();
     int currentMinute = now.minute();
+    // Check if time is in between show hours to record show totals
+    currentTimeMinute = now.hour()*60 + now.minute(); // convert time to minutes
+    showTime = (currentTimeMinute >= showStartTime && currentTimeMinute <= showEndTime); // show is running and save counts
     readTempandRH(); // Get Temperature and Humidity
  
     // Run the function only when the hour changes and once in the first minute
@@ -1833,9 +1852,7 @@ void loop() {
   
     ElegantOTA.loop();   // Keep OTA Updates Alive
 
-    // Check if time is inbetween show hours to record show totals
-    currentTimeMinute = now.hour()*60 + now.minute();
-    showTime = (currentTimeMinute >= showStartTime && currentTimeMinute <= showEndTime); // show is running and save counts
+
 
 
     // Update the display
