@@ -3,6 +3,7 @@ Gate Counter by Greg Liebig gliebig@sheboyganlights.org
 Initial Build 12/5/2023 12:15 pm
 
 Changelog
+24.12.17.3 more tweaks to detectCar() revised averageHourlyTemp() & readTempandRH() 
 24.12.17.2 modified detectCar() based on logging data increased predetect mag sensor to 750ms
 24.12.17.1 modified downloadSDFile(AsyncWebServerRequest *request) to save file with correct filename
 24.12.16.5 Added logging function to plot sensor data. Changes getHourlyData() & saveHoulyCounts()
@@ -99,7 +100,7 @@ D23 - MOSI
 #include <queue>  // Include queue for storing messages
 
 // ******************** CONSTANTS *******************
-#define FWVersion "24.12.17.2" // Firmware Version
+#define FWVersion "24.12.17.3" // Firmware Version
 #define OTA_Title "Gate Counter" // OTA Title
 #define magSensorPin 32 // Pin for Magnotometer Sensor
 #define beamSensorPin 33  //Pin for Reflective Beam Sensor
@@ -109,8 +110,8 @@ D23 - MOSI
 // #define MQTT_KEEPALIVE 30 //removed 10/16/24
 
 unsigned int carDetectMillis = 500; // minimum millis for beamSensor to be broken needed to detect a car
-unsigned int showStartTime = 17*60 + 10; // Show (counting) starts at 5:10 pm
-unsigned int showEndTime =  21*60 + 20;  // Show (counting) ends at 9:20 pm 
+const int showStartMin = 17 * 60 + 10; // 5:10 PM in minutes
+const int showEndMin = 21 * 60 + 20;   // 9:20 PM in minutes (including additional checks till 9:20 PM)
 // **************************************************
 
 /***** MQTT TOPIC DEFINITIONS *****/
@@ -261,10 +262,10 @@ int inParkCars;     // cars in park Enter Cars - Exit Cars
 int carCounterCars; // Counts from Car Counter
 int lastcarCounterCars; // Used to publish in park cars when car counter increases
 int carsBeforeShow = 0; // Total Cars before show starts
-int carsHr18 =0; // total cars hour 18 (6:00 pm)
-int carsHr19 =0; // total cars hour 19 (7:00 pm)
-int carsHr20 =0; // total cars hour 20 (8:00 pm)
-int carsHr21 =0; // total cars hour 21 (9:20 pm)
+//int carsHr18 =0; // total cars hour 18 (6:00 pm)
+//int carsHr19 =0; // total cars hour 19 (7:00 pm)
+//int carsHr20 =0; // total cars hour 20 (8:00 pm)
+//int carsHr21 =0; // total cars hour 21 (9:20 pm)
 int magSensorState, lastmagSensorState ; /* Store states of Mag Sensor*/
 int beamSensorState, lastbeamSensorState ; /* Store states of Beam Sensor */
 unsigned long triggerTime; // Stores the time when sensor 1 is triggered
@@ -277,7 +278,6 @@ unsigned long start_MqttMillis; // for Keep Alive Timer
 unsigned long start_WiFiMillis; // for keep Alive Timer
 int gateCounterTimeout = 60000; // default time for car counter alarm in millis
 char buf2[25] = "YYYY-MM-DD hh:mm:ss"; // time car detected
-char buf3[25] = "YYYY-MM-DD hh:mm:ss"; // time bounce detected
 int hourArray[24]; // used to store hourly totals
 
 //***** DAILY RESET FLAGS *****
@@ -1239,26 +1239,28 @@ void callback(char* topic, byte* payload, unsigned int length) {
 // Average Temperature each hour
 void averageHourlyTemp() {
     static int lastPublishedHour = -1;     // Tracks the last hour when data was published
-    static int tempReadingsCount = 0;      // Number of temperature readings
-    static float tempReadingsSum = 0.0;    // Sum of temperature readings
+    static int tempReadingsCount = 0;      // Number of valid temperature readings
+    static float tempReadingsSum = 0.0;    // Sum of valid temperature readings
     static float hourlyTemp[24] = {0.0};   // Array to store average temperatures for 24 hours
 
+    // Get the current time
     DateTime now = rtc.now();
     int nowHour = now.hour();
 
     // Check if the hour has changed
     if (nowHour != lastPublishedHour) {
-        // Calculate and store the average for the previous hour
+        // Publish the average for the completed hour
         if (tempReadingsCount > 0 && lastPublishedHour >= 0) {
             hourlyTemp[lastPublishedHour] = tempReadingsSum / tempReadingsCount;
 
-            // Publish the average temperature for the completed hour
+            // Publish to MQTT
             char topic[50];
             snprintf(topic, sizeof(topic), "%s/hourly/%02d", MQTT_PUB_TEMP, lastPublishedHour);
             publishMQTT(topic, String(hourlyTemp[lastPublishedHour], 1)); // Publish with 1 decimal place
 
-            // Print to serial monitor
+            // Log the published temperature
             Serial.printf("Hour %02d average temperature published: %.1f°F\n", lastPublishedHour, hourlyTemp[lastPublishedHour]);
+            publishDebugLog("Hourly average temperature published: " + String(hourlyTemp[lastPublishedHour], 1));
         }
 
         // Reset for the new hour
@@ -1267,11 +1269,14 @@ void averageHourlyTemp() {
         tempReadingsCount = 0;
     }
 
-    // Add the current temperature reading to the sum
-    //float tempF = ((rtc.getTemperature() * 9 / 5) + 32);
-    tempReadingsSum += tempF;
-    tempReadingsCount++;
+    // Add the latest temperature reading if valid
+    if (tempF != -999) { // Ensure only valid readings are processed
+        tempReadingsSum += tempF;
+        tempReadingsCount++;
+        publishDebugLog("Temperature added for averaging: " + String(tempF));
+    }
 }
+
 
 void logSensorStates() {
     if (!loggingEnabled) return; // Do not log if logging is disabled
@@ -1302,7 +1307,7 @@ void logSensorStates() {
 
 void countTheCar() {
   DateTime now = rtc.now();
-  Serial.print(now.toString(buf3));
+  Serial.print(now.toString(buf2));
   Serial.print(", Time to pass = ");
   Serial.println(timeToPassMS);
   //Serial.print(", ");
@@ -1322,7 +1327,7 @@ void countTheCar() {
   //HEADER: ("Date Time,Time to Pass,Car#,Cars In Park,Temp,Millis");
   myFile = SD.open(fileName6, FILE_APPEND);
   if (myFile) {
-    myFile.print(now.toString(buf3));
+    myFile.print(now.toString(buf2));
     myFile.print(", ");
     myFile.print (timeToPassMS) ; 
     myFile.print(", ");
@@ -1342,7 +1347,7 @@ void countTheCar() {
     */
     publishMQTT(MQTT_PUB_HELLO, "Gate Counter Working");
     publishMQTT(MQTT_PUB_TEMP, String(tempF));
-    publishMQTT(MQTT_PUB_TIME, now.toString(buf3));
+    publishMQTT(MQTT_PUB_TIME, now.toString(buf2));
     publishMQTT(MQTT_PUB_EXIT_CARS, String(totalDailyCars));
     publishMQTT(MQTT_PUB_INPARK_CARS, String(inParkCars));
     publishMQTT(MQTT_PUB_BEAM_SENSOR_STATE, String(beamSensorState));
@@ -1365,83 +1370,73 @@ void countTheCar() {
   When the magSensor drops LOW during the IDLE state and beamSensor is also LOW, reset magSensorWasTriggered
   to prepare for a new car.*/
 void detectCar() {
+    // Read sensor states
     magSensorState = !digitalRead(magSensorPin);  // Assuming active high
     beamSensorState = digitalRead(beamSensorPin); // Assuming active low (Normally closed = 1)
-    logSensorStates();                            // Log sensor states if enabled
 
+    // Declare static variables for state tracking
     static unsigned long beamSensorHighTime = 0;  // Time when BeamSensor goes HIGH
     static unsigned long magSensorTripTime = 0;   // Time when MagSensor last triggered
     static bool magSensorTriggered = false;       // Tracks if MagSensor was triggered
-    static bool carCounted = false;               // Tracks if the car has been counted
-    static int lastBeamSensorState = -1;          // To track BeamSensor state changes
-    static int lastMagSensorState = -1;           // To track MagSensor state changes
+    static bool systemReadyLogged = false;        // Tracks if "System ready" has been logged
 
-    // Log state changes only if enabled and changed
-    if (beamSensorState != lastBeamSensorState) {
-        logSensorStates();
-        publishMQTT(MQTT_PUB_BEAM_SENSOR_STATE, String(beamSensorState));
-        lastBeamSensorState = beamSensorState;
+    // Detect MagSensor pre-trigger and reset if BeamSensor doesn't activate
+    if (magSensorState == 1 && !magSensorTriggered) {
+        magSensorTripTime = millis();
+        magSensorTriggered = true;
+        publishDebugLog("MagSensor triggered (pre-beam check)!");
     }
 
-    if (magSensorState != lastMagSensorState) {
-        logSensorStates();
-        publishMQTT(MQTT_PUB_MAG_SENSOR_STATE, String(magSensorState));
-        lastMagSensorState = magSensorState;
+    if (magSensorTriggered && (millis() - magSensorTripTime > 750) && beamSensorHighTime == 0) {
+        // Reset MagSensor if BeamSensor hasn't activated within 750ms
+        magSensorTriggered = false;
+        publishDebugLog("MagSensor reset due to no BeamSensor activation.");
     }
 
-    // MagSensor Triggered
-    if (magSensorState == 1) {
-        magSensorTripTime = millis();  // Record MagSensor trigger time
-        magSensorTriggered = true;    // Mark MagSensor as triggered
-        logSensorStates();
-        publishDebugLog("MagSensor triggered!");
-    }
-
-    // BeamSensor Rising Edge
+    // Detect BeamSensor state changes
     if (beamSensorState == 1 && beamSensorHighTime == 0) {
-        beamSensorHighTime = millis();  // Record BeamSensor high time
-        carCounted = false;             // Reset car counting for this cycle
-        logSensorStates();
+        // Beam rising edge detected
+        beamSensorHighTime = millis();
+        magSensorTriggered = false; // Reset mag sensor trigger for this car
         publishDebugLog("BeamSensor HIGH detected!");
-
-        // Check for MagSensor pre-trigger (within 750ms)
-        if (millis() - magSensorTripTime <= 750) {
-            magSensorTriggered = true;
-            logSensorStates();
-            publishDebugLog("MagSensor pre-trigger confirmed!");
-        }
+        systemReadyLogged = false;  // Reset "System ready" log flag
     }
 
-    // BeamSensor Falling Edge
     if (beamSensorState == 0 && beamSensorHighTime > 0) {
+        // Beam falling edge detected
         unsigned long beamHighDuration = millis() - beamSensorHighTime;
         publishDebugLog("BeamSensor LOW detected. Duration: " + String(beamHighDuration) + " ms");
-        
-        // Publish the duration the BeamSensor was HIGH
         publishMQTT(MQTT_PUB_TTP, String(beamHighDuration));
-        logSensorStates();
 
-        // Confirm car if:
-        // 1. Beam HIGH duration >= 1300ms, OR
-        // 2. MagSensor triggered during or before BeamSensor activation
+        // Check car conditions: Beam active long enough or MagSensor triggered
         if (beamHighDuration >= 1300 || magSensorTriggered) {
-            if (!carCounted) {
-                timeToPassMS = millis() - beamSensorHighTime;
-                countTheCar();  // Count the car
-                carCounted = true;  // Avoid duplicate counts
-                logSensorStates();
-                publishDebugLog("Car confirmed and counted!");
-            }
+           timeToPassMS = millis()-beamSensorHighTime; 
+           countTheCar();  // Count the car
+           publishDebugLog("Car confirmed and counted!");
         } else {
-            publishDebugLog("No car detected (Beam duration too short or no MagSensor trigger).");
+            publishDebugLog("No car detected (Beam duration too short or no MagSensor trigger). ");
         }
 
-        // Reset all states for the next detection
+        // Reset beam timing and mag sensor state
         beamSensorHighTime = 0;
-        magSensorTriggered = false;
-        carCounted = false;
+        magSensorTriggered = false; // Ensure mag sensor is reset after car passes
+    }
+
+    // Detect MagSensor activations during BeamSensor HIGH
+    if (magSensorState == 1 && !magSensorTriggered && beamSensorHighTime > 0) {
+        // MagSensor triggered for the first time during BeamSensor HIGH
+        magSensorTripTime = millis();
+        magSensorTriggered = true;
+        publishDebugLog("MagSensor triggered during BeamSensor HIGH!");
+    }
+
+    // Log "System ready for next car" only once
+    if (beamSensorHighTime == 0 && !magSensorTriggered && !systemReadyLogged) {
+        publishDebugLog("System ready for next car.");
+        systemReadyLogged = true;
     }
 }
+
 
 // END CAR DETECTION
 
@@ -1563,6 +1558,9 @@ void readTempandRH() {
         // Check if the readings are valid
         if (isnan(tempF) || isnan(humidity)) {
             Serial.println("Failed to read from DHT sensor!");
+            publishDebugLog("DHT sensor reading failed.");
+            tempF = -999;  // Use a sentinel value to indicate failure
+            humidity = -999;
             return; // Exit function if the readings are invalid
         }
 
@@ -1570,6 +1568,10 @@ void readTempandRH() {
         char jsonPayload[100];
         snprintf(jsonPayload, sizeof(jsonPayload), "{\"tempF\": %.1f, \"humidity\": %.1f}", tempF, humidity);
         publishMQTT(MQTT_PUB_TEMP, String(jsonPayload));
+        publishDebugLog("Temperature and humidity published: " + String(jsonPayload));
+
+        // Forward valid readings to the hourly average system
+        averageHourlyTemp(); // Ensure the reading is processed for summaries
     }
 
     // Check if it's time to print the readings
@@ -1577,9 +1579,14 @@ void readTempandRH() {
         lastDHTPrintMillis = currentMillis;
 
         // Print temperature and humidity readings
-        Serial.printf("Temperature: %.1f °F, Humidity: %.1f %%\n", tempF, humidity);
+        if (tempF != -999 && humidity != -999) {
+            Serial.printf("Temperature: %.1f °F, Humidity: %.1f %%\n", tempF, humidity);
+        } else {
+            Serial.println("Temperature/Humidity data invalid. Check sensor.");
+        }
     }
 }
+
 
 /** Resets the hourly count array at midnight */
 void resetHourlyCounts() {
@@ -1834,7 +1841,7 @@ void loop() {
     int currentMinute = now.minute();
     // Check if time is in between show hours to record show totals
     currentTimeMinute = now.hour()*60 + now.minute(); // convert time to minutes
-    showTime = (currentTimeMinute >= showStartTime && currentTimeMinute <= showEndTime); // show is running and save counts
+    showTime = (currentTimeMinute >= showStartMin && currentTimeMinute <= showEndMin); // show is running and save counts
     readTempandRH(); // Get Temperature and Humidity
  
     // Run the function only when the hour changes and once in the first minute
