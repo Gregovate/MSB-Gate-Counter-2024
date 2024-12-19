@@ -3,7 +3,9 @@ Gate Counter by Greg Liebig gliebig@sheboyganlights.org
 Initial Build 12/5/2023 12:15 pm
 
 Changelog
-24.12.18.1 Renamed hourlyCarCount[] to hourlyCount[] and finished comparison to Gate Counter Code
+24.12.18.3 Added new stat Time Between Cars
+24.12.18.2 put publishing state changes beamSensorState and magSensorState and timeToPassMS. detectCar() finally working reliably!
+24.12.18.1 Renamed hourlyCarCount[] to hourlyCount[] and finished comparison to Car Counter Code
 24.12.17.4 added new topic MQTT_COUNTER_LOG "msb/traffic/GateCounter/CounterLog"
 24.12.17.3 more tweaks to detectCar() revised averageHourlyTemp() & readTempandRH() removed averageHourlyTemp() from Loop
 24.12.17.2 modified detectCar() based on logging data increased predetect mag sensor to 750ms
@@ -101,7 +103,7 @@ D23 - MOSI
 #include <queue>  // Include queue for storing messages
 
 // ******************** CONSTANTS *******************
-#define FWVersion "24.12.18.1"   // Firmware Version
+#define FWVersion "24.12.18.2"   // Firmware Version
 #define OTA_Title "Gate Counter" // OTA Title
 #define magSensorPin 32 // Pin for Magnotometer Sensor
 #define beamSensorPin 33  //Pin for Reflective Beam Sensor
@@ -142,7 +144,7 @@ char topicBase[60];
 #define MQTT_DEBUG_LOG "msb/traffic/GateCounter/debuglog"
 #define MQTT_COUNTER_LOG "msb/traffic/GateCounter/CounterLog"
 #define MQTT_PUB_MAGBEAM_MS "msb/traffic/GateCounter/mag-beam_ms"
-#define MQTT_PUB_LASTCAREXIT_MS "msb/traffic/GateCounter/lastCarExitTime"
+#define MQTT_PUB_BETWEENCARS_MS "msb/traffic/GateCounter/betweenCars"
 #define MQTT_PUB_BEAMHIGH_MS "msb/traffic/GateCounter/beam-high_ms"
 // Subscribing Topics (to reset values)
 #define MQTT_SUB_TOPIC0  "msb/traffic/CarCounter/EnterTotal"          // get enter counts from carCounter
@@ -1371,8 +1373,22 @@ void detectCar() {
     // Declare static variables for state tracking
     static unsigned long beamSensorHighTime = 0;  // Time when BeamSensor goes HIGH
     static unsigned long magSensorTripTime = 0;   // Time when MagSensor last triggered
+    static unsigned long lastCarPassTime = 0;     // Time of the last car detection
     static bool magSensorTriggered = false;       // Tracks if MagSensor was triggered
     static bool systemReadyLogged = false;        // Tracks if "System ready" has been logged
+
+
+    // Publish BeamSensor state changes
+    if (beamSensorState != lastbeamSensorState) {
+        lastbeamSensorState = beamSensorState;
+        publishMQTT(MQTT_PUB_BEAM_SENSOR_STATE, String(beamSensorState));
+    }
+
+    // Publish MagSensor state changes
+    if (magSensorState != lastmagSensorState) {
+        lastmagSensorState = magSensorState;
+        publishMQTT(MQTT_PUB_MAG_SENSOR_STATE, String(magSensorState));
+    }
 
     // Detect MagSensor pre-trigger and reset if BeamSensor doesn't activate
     if (magSensorState == 1 && !magSensorTriggered) {
@@ -1400,13 +1416,23 @@ void detectCar() {
         // Beam falling edge detected
         unsigned long beamHighDuration = millis() - beamSensorHighTime;
         publishMQTT(MQTT_COUNTER_LOG,"BeamSensor LOW detected. Duration: " + String(beamHighDuration) + " ms");
-        publishMQTT(MQTT_PUB_TTP, String(beamHighDuration));
+        //publishMQTT(MQTT_PUB_TTP, String(beamHighDuration));
 
         // Check car conditions: Beam active long enough or MagSensor triggered
         if (beamHighDuration >= 1300 || magSensorTriggered) {
-           timeToPassMS = millis()-beamSensorHighTime; 
+           unsigned long currentCarPassTime = millis();
+           timeToPassMS = currentCarPassTime-beamSensorHighTime; 
+           
+           // Calculate time between cars if applicable
+            if (lastCarPassTime > 0) {
+                unsigned long timeBetweenCars = currentCarPassTime - lastCarPassTime;
+                publishMQTT(MQTT_PUB_BETWEENCARS_MS, String(timeBetweenCars));
+            }
+
+           lastCarPassTime = currentCarPassTime; // Update last car pass time
            countTheCar();  // Count the car
            publishMQTT(MQTT_COUNTER_LOG,"Car confirmed and counted!");
+           publishMQTT(MQTT_PUB_TTP, String(timeToPassMS));
         } else {
             publishMQTT(MQTT_COUNTER_LOG,"No car detected (Beam duration too short or no MagSensor trigger). ");
         }
