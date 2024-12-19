@@ -3,7 +3,8 @@ Gate Counter by Greg Liebig gliebig@sheboyganlights.org
 Initial Build 12/5/2023 12:15 pm
 
 Changelog
-24.12.18.3 Added new stat Time Between Cars
+24.12.18.4 added  pinMode(DHTPIN, INPUT_PULLUP) for DHT Sensor getting bad readings.  77.1% (used 1010645 bytes from 1310720 bytes)
+24.12.18.3 Added new stat Time Between Cars. Put back BeamSensor High Time
 24.12.18.2 put publishing state changes beamSensorState and magSensorState and timeToPassMS. detectCar() finally working reliably!
 24.12.18.1 Renamed hourlyCarCount[] to hourlyCount[] and finished comparison to Car Counter Code
 24.12.17.4 added new topic MQTT_COUNTER_LOG "msb/traffic/GateCounter/CounterLog"
@@ -103,7 +104,7 @@ D23 - MOSI
 #include <queue>  // Include queue for storing messages
 
 // ******************** CONSTANTS *******************
-#define FWVersion "24.12.18.2"   // Firmware Version
+#define FWVersion "24.12.18.4"   // Firmware Version
 #define OTA_Title "Gate Counter" // OTA Title
 #define magSensorPin 32 // Pin for Magnotometer Sensor
 #define beamSensorPin 33  //Pin for Reflective Beam Sensor
@@ -1295,24 +1296,24 @@ void averageHourlyTemp() {
 
 // Car Counted, increment the counter by 1 and append to the Exitlog.csv log file on the SD card
 void countTheCar() {
-  DateTime now = rtc.now();
-  Serial.print(now.toString(buf2));
-  Serial.print(", Time to pass = ");
-  Serial.println(timeToPassMS);
-  //Serial.print(", ");
-  //Serial.print(String("DateTime::TIMESTAMP_FULL:\t")+now.timestamp(DateTime::TIMESTAMP_FULL));
-  //Serial.print(",1,"); 
-  totalDailyCars ++;
-  // Increment hourly car count
-  int currentHour = now.hour();
-  hourlyCount[currentHour]++;
-  saveDailyTotal(); // Update Daily Total on SD Card to retain numbers with reboot
+    DateTime now = rtc.now();
+    Serial.print(now.toString(buf2));
+    Serial.print(", Time to pass = ");
+    Serial.println(timeToPassMS);
+    //Serial.print(", ");
+    //Serial.print(String("DateTime::TIMESTAMP_FULL:\t")+now.timestamp(DateTime::TIMESTAMP_FULL));
+    //Serial.print(",1,"); 
+    totalDailyCars ++;
+    // Increment hourly car count
+    int currentHour = now.hour();
+    hourlyCount[currentHour]++;
+    saveDailyTotal(); // Update Daily Total on SD Card to retain numbers with reboot
     // Construct the MQTT topic dynamically
-    char formattedTopic[100]; // Buffer for the full topic
-    snprintf(formattedTopic, sizeof(formattedTopic), "%s%02d", MQTT_PUB_CARS_HOURLY, currentHour); // Append the two-digit hour
+    char topic[60];
+    snprintf(topic, sizeof(topic), "%s/hour%02d", MQTT_PUB_CARS_HOURLY, currentHour);
+    // Publish current hour's data to MQTT
+    publishMQTT(topic, String(hourlyCount[currentHour]));
 
-    // Publish the updated hourly count
-    publishMQTT(formattedTopic, String(hourlyCount[currentHour]));
 
   // increase Show Count only when show is open
   if (showTime == true) {
@@ -1416,7 +1417,7 @@ void detectCar() {
         // Beam falling edge detected
         unsigned long beamHighDuration = millis() - beamSensorHighTime;
         publishMQTT(MQTT_COUNTER_LOG,"BeamSensor LOW detected. Duration: " + String(beamHighDuration) + " ms");
-        //publishMQTT(MQTT_PUB_TTP, String(beamHighDuration));
+        publishMQTT(MQTT_PUB_BEAMHIGH_MS, String(beamHighDuration));
 
         // Check car conditions: Beam active long enough or MagSensor triggered
         if (beamHighDuration >= 1300 || magSensorTriggered) {
@@ -1563,6 +1564,7 @@ void readTempandRH() {
     static unsigned long lastDHTPrintMillis = 0;   // Last time temperature was printed
     const unsigned long dhtReadInterval = 10000;  // 10 seconds interval for reading temp
     const unsigned long dhtPrintInterval = 600000; // 10 minutes interval for printing temp
+    static bool tempOutOfRangeReported = false;
 
     unsigned long currentMillis = millis();
 
@@ -1582,28 +1584,44 @@ void readTempandRH() {
             humidity = -999;
             return; // Exit function if the readings are invalid
         }
-
-        // Publish the temperature and humidity as JSON to MQTT
-        char jsonPayload[100];
-        snprintf(jsonPayload, sizeof(jsonPayload), "{\"tempF\": %.1f, \"humidity\": %.1f}", tempF, humidity);
-        publishMQTT(MQTT_PUB_TEMP, String(jsonPayload));
-        //publishDebugLog("Temperature and humidity published: " + String(jsonPayload));
-
-        // Forward valid readings to the hourly average system
-        averageHourlyTemp(); // Ensure the reading is processed for summaries
-    }
-
-    // Check if it's time to print the readings
-    if (currentMillis - lastDHTPrintMillis >= dhtPrintInterval) {
-        lastDHTPrintMillis = currentMillis;
-
-        // Print temperature and humidity readings
-        if (tempF != -999 && humidity != -999) {
-            Serial.printf("Temperature: %.1f °F, Humidity: %.1f %%\n", tempF, humidity);
+        // Check for temperature out of range
+        if (tempF < -40 || tempF > 120) {
+            if (!tempOutOfRangeReported) {
+                // Publish only if not already reported
+                Serial.println("Temperature out of range!");
+                publishDebugLog("DHT temperature out of range: " + String(tempF));
+                tempOutOfRangeReported = true; // Set flag to prevent duplicate reporting
+            }
+            tempF = -999; // Set to sentinel value for out-of-range condition
         } else {
-            Serial.println("Temperature/Humidity data invalid. Check sensor.");
+            // Reset the flag if temperature is back in range
+            if (tempOutOfRangeReported) {
+                Serial.println("Temperature back in range.");
+                tempOutOfRangeReported = false;
+            }
+
+            // Publish the temperature and humidity as JSON to MQTT
+            char jsonPayload[100];
+            snprintf(jsonPayload, sizeof(jsonPayload), "{\"tempF\": %.1f, \"humidity\": %.1f}", tempF, humidity);
+            publishMQTT(MQTT_PUB_TEMP, String(jsonPayload));
+            //publishDebugLog("Temperature and humidity published: " + String(jsonPayload));
+
+            // Forward valid readings to the hourly average system
+            averageHourlyTemp(); // Ensure the reading is processed for summaries
         }
-    }
+
+        // Check if it's time to print the readings
+        if (currentMillis - lastDHTPrintMillis >= dhtPrintInterval) {
+            lastDHTPrintMillis = currentMillis;
+
+            // Print temperature and humidity readings
+            if (tempF != -999 && humidity != -999) {
+                Serial.printf("Temperature: %.1f °F, Humidity: %.1f %%\n", tempF, humidity);
+            } else {
+                Serial.println("Temperature/Humidity data invalid. Check sensor.");
+            }
+        }
+    }   
 }
 
 /** Resets the hourly count array at midnight */
@@ -1797,6 +1815,7 @@ void setup() {
     //Set Input Pin
     pinMode(magSensorPin, INPUT_PULLDOWN);
     pinMode(beamSensorPin, INPUT_PULLDOWN);
+    pinMode(DHTPIN, INPUT_PULLUP);
 
     // Initialize DHT sensor
     dht.begin();
