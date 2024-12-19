@@ -3,6 +3,7 @@ Gate Counter by Greg Liebig gliebig@sheboyganlights.org
 Initial Build 12/5/2023 12:15 pm
 
 Changelog
+24.12.19.4 Added save saveHourlyCounts() to countTheCar() and removed save from OTA update
 24.12.19.3 File comparrison between Car Counter and Gate Counter. Synced shared code
 24.12.19.2 fixed warnings, removed unused variables, Changed waitduration to carDetectMS Only errors are with html. Changed carDetectMS default 1200
 24.12.19.1 Included saving hourly data before uploading new firmware, Set hostname, MultiMQTT, modified secrets.h
@@ -109,7 +110,7 @@ D23 - MOSI
 #include <queue>  // Include queue for storing messages
 
 // ******************** CONSTANTS *******************
-#define FWVersion "24.12.19.3"   // Firmware Version
+#define FWVersion "24.12.19.4"   // Firmware Version
 #define OTA_Title "Gate Counter" // OTA Title
 #define magSensorPin 32 // Pin for Magnotometer Sensor
 #define beamSensorPin 33  //Pin for Reflective Beam Sensor
@@ -187,12 +188,12 @@ String currentDirectory = "/"; // Current working directory
 
 unsigned long ota_progress_millis = 0;
 
-void saveHourlyCounts();  // forward declaration
+//void saveHourlyCounts();  // forward declaration
 
 void onOTAStart() {
   // Log when OTA has started
   Serial.println("OTA update started!");
-  saveHourlyCounts();
+  //saveHourlyCounts();
 }
 
 void onOTAProgress(size_t current, size_t final) {
@@ -1277,6 +1278,7 @@ void countTheCar() {
     int currentHour = now.hour();
     hourlyCount[currentHour]++;
     saveDailyTotal(); // Update Daily Total on SD Card to retain numbers with reboot
+    saveHourlyCounts();
     // Construct the MQTT topic dynamically
     char topic[60];
     snprintf(topic, sizeof(topic), "%s/hour%02d", MQTT_PUB_CARS_HOURLY, currentHour);
@@ -1645,15 +1647,25 @@ void timeTriggeredEvents() {
         flagDailyShowSummarySaved = true;
     }
 
-    // Hourly Event Timer
-    if (now.minute() == 0  && !flagHourlyReset) {
-        saveHourlyCounts(); // Saves hourly counts
+    // 5 minute Event Timer
+    if (now.minute() %5 == 0  && !flagHourlyReset) {
+        //saveHourlyCounts(); // Saves hourly counts
         flagHourlyReset = true;
+        // Add debug message with counts
+        char debugMessage[100]; // Increase size if necessary
+        int currentHour = now.hour(); // Get the current hour
+        snprintf(debugMessage, sizeof(debugMessage), "Hourly data saved for hour %02d. Current count: %d.", 
+                currentHour, hourlyCount[currentHour]);
+        // Publish the debug message
+        publishMQTT(MQTT_DEBUG_LOG, debugMessage);
+        Serial.println(debugMessage); // Print to serial for debugging
     }
-    // reset Hourly Hourly Event Timer
-    if (now.minute() == 1) {
+
+    // reset 5 Min Event Timer
+    if (now.minute() %5 != 0) {
         flagHourlyReset = false;
     }
+
 
     // Reset flags for the next day at 12:01:01 AM
     if (now.hour() == 0 && now.minute() == 1 && now.second() == 1 && !resetFlagsOnce) { 
