@@ -3,6 +3,8 @@ Gate Counter by Greg Liebig gliebig@sheboyganlights.org
 Initial Build 12/5/2023 12:15 pm
 
 Changelog
+24.12.18.6 Changed flags to save certain data hourly flagHourlyReset
+24.12.18.5 Fixed MQTT dymanic topic in CountTheCar for hourly totals 
 24.12.18.4 added  pinMode(DHTPIN, INPUT_PULLUP) for DHT Sensor getting bad readings.  77.1% (used 1010645 bytes from 1310720 bytes)
 24.12.18.3 Added new stat Time Between Cars. Put back BeamSensor High Time
 24.12.18.2 put publishing state changes beamSensorState and magSensorState and timeToPassMS. detectCar() finally working reliably!
@@ -104,7 +106,7 @@ D23 - MOSI
 #include <queue>  // Include queue for storing messages
 
 // ******************** CONSTANTS *******************
-#define FWVersion "24.12.18.4"   // Firmware Version
+#define FWVersion "24.12.18.6"   // Firmware Version
 #define OTA_Title "Gate Counter" // OTA Title
 #define magSensorPin 32 // Pin for Magnotometer Sensor
 #define beamSensorPin 33  //Pin for Reflective Beam Sensor
@@ -183,10 +185,12 @@ String currentDirectory = "/"; // Current working directory
 
 unsigned long ota_progress_millis = 0;
 
+//void saveHourlyCounts();  // forward declaration
+
 void onOTAStart() {
   // Log when OTA has started
   Serial.println("OTA update started!");
-  // <Add your own code here>
+  //saveHourlyCounts();
 }
 
 void onOTAProgress(size_t current, size_t final) {
@@ -286,7 +290,7 @@ bool flagMidnightReset = false;
 bool flagDailyShowStartReset = false;
 bool flagDailySummarySaved = false;
 bool flagDailyShowSummarySaved = false;
-bool flagHourlyCountsSaved = false;
+bool flagHourlyReset = false;
 bool showTime = false;
 bool resetFlagsOnce = false;
 
@@ -1676,10 +1680,14 @@ void timeTriggeredEvents() {
         flagDailyShowSummarySaved = true;
     }
 
-    // Check for hourly data save
-    if (now.minute() == 59 && now.second() == 59 && !flagHourlyCountsSaved) {
-        saveHourlyCounts();
-        flagHourlyCountsSaved = true;
+    // Hourly Save Timer
+    if (now.minute() == 0  && !flagHourlyReset) {
+        saveHourlyCounts(); // Saves hourly counts
+        flagHourlyReset = true;
+    }
+    // reset Hourly Save flag
+    if (now.minute() == 1) {
+        flagHourlyReset = false;
     }
 
     // Reset flags for the next day at 12:01:01 AM
@@ -1689,7 +1697,7 @@ void timeTriggeredEvents() {
         flagDailyShowStartReset = false;
         flagDailySummarySaved = false;
         flagDailyShowSummarySaved = false;
-        flagHourlyCountsSaved = false;
+        flagHourlyReset = false;
         publishMQTT(MQTT_DEBUG_LOG, "Run once flags reset for new day");
         resetFlagsOnce = true; // Prevent further execution within the same day
     }
@@ -1815,7 +1823,7 @@ void setup() {
     //Set Input Pin
     pinMode(magSensorPin, INPUT_PULLDOWN);
     pinMode(beamSensorPin, INPUT_PULLDOWN);
-    pinMode(DHTPIN, INPUT_PULLUP);
+    //pinMode(DHTPIN, INPUT_PULLUP);
 
     // Initialize DHT sensor
     dht.begin();
