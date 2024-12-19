@@ -3,6 +3,7 @@ Gate Counter by Greg Liebig gliebig@sheboyganlights.org
 Initial Build 12/5/2023 12:15 pm
 
 Changelog
+24.12.19.3 File comparrison between Car Counter and Gate Counter. Synced shared code
 24.12.19.2 fixed warnings, removed unused variables, Changed waitduration to carDetectMS Only errors are with html. Changed carDetectMS default 1200
 24.12.19.1 Included saving hourly data before uploading new firmware, Set hostname, MultiMQTT, modified secrets.h
 24.12.18.6 Changed flags to save certain data hourly flagHourlyReset
@@ -108,7 +109,7 @@ D23 - MOSI
 #include <queue>  // Include queue for storing messages
 
 // ******************** CONSTANTS *******************
-#define FWVersion "24.12.19.2"   // Firmware Version
+#define FWVersion "24.12.19.3"   // Firmware Version
 #define OTA_Title "Gate Counter" // OTA Title
 #define magSensorPin 32 // Pin for Magnotometer Sensor
 #define beamSensorPin 33  //Pin for Reflective Beam Sensor
@@ -637,7 +638,7 @@ void publishDebugLog(const String &message) {
     publishMQTT(MQTT_DEBUG_LOG, message);
 }
 
-// Used to publish current counts to update Gate Counter every 30 seconds if no car is counted
+// Used to publish current counts to update Car Counter every 30 seconds if no car is counted
 void KeepMqttAlive() {
    publishMQTT(MQTT_PUB_TEMP, String(tempF));
    publishMQTT(MQTT_PUB_EXIT_CARS, String(totalDailyCars));
@@ -675,10 +676,11 @@ void MQTTreconnect() {
                 // Display connection status
                 display.setTextSize(1);
                 display.setTextColor(WHITE);
-                display.setCursor(0, line5);
+                display.setCursor(0,line5);
                 display.println("MQTT Connect");
                 display.display();
-                
+                Serial.println("connected!");
+                Serial.println("Waiting for Car");                
                 // Once connected, publish an announcement
                 //publishMQTT(MQTT_PUB_HELLO, "Gate Counter ONLINE on " + String(mqtt_configs[i].server));
                 publishMQTT(MQTT_PUB_HELLO, "Gate Counter ONLINE!");
@@ -697,8 +699,8 @@ void MQTTreconnect() {
                 mqtt_client.subscribe(MQTT_SUB_CARMS);
                 mqtt_client.subscribe(MQTT_SUB_LOGGING);
 
-                // Log successful connection
-                Serial.println("MQTT topics subscribed.");
+                // Log subscriptions
+                Serial.println("Subscribed to MQTT topics.");
                 publishMQTT(MQTT_DEBUG_LOG, "MQTT connected and topics subscribed.");
 
                 return; // Exit loop on successful connection
@@ -764,13 +766,13 @@ void getDailyTotal()   {
     }
 } // end getDailyTotal
 
-// open ShowTot.txt to get totalCars for season
+/** Get season total cars since show opened */
 void getShowTotal() {
   myFile = SD.open(fileName2,FILE_READ);
   if (myFile) {
     while (myFile.available()) {
       totalShowCars = myFile.parseInt(); // read total
-      Serial.print(" Total cars from file = ");
+      Serial.print(" Total Show cars from file = ");
       Serial.println(totalShowCars);
     }
     myFile.close();
@@ -874,9 +876,6 @@ void getHourlyData() {
     }
 }
 
-
-
-
 /***** UPDATE and SAVE TOTALS TO SD CARD *****/
 /** Save the daily Total of cars counted */
 void saveDailyTotal() {
@@ -893,7 +892,7 @@ void saveDailyTotal() {
   publishMQTT(MQTT_PUB_EXIT_CARS, String(totalDailyCars));
 }
 
-/* -----Increment the grand total cars file ----- */
+/* Save the grand total cars file for season  */
 void saveShowTotal() {  
     myFile = SD.open(fileName2,FILE_WRITE);
     if (myFile) {
@@ -906,7 +905,7 @@ void saveShowTotal() {
     publishMQTT(MQTT_PUB_SHOWTOTAL, String(totalShowCars));  
 }
 
-/* -----Increment the calendar day file ----- */
+// Save the calendar day to file ----- */
 void saveDayOfMonth() {
     myFile = SD.open(fileName3,FILE_WRITE);
     if (myFile) {
@@ -919,7 +918,7 @@ void saveDayOfMonth() {
       publishMQTT(MQTT_PUB_DAYOFMONTH, String(dayOfMonth));
 }
 
-/* increment day of show since start */
+/** Save number of days the show has been running */
 void saveDaysRunning() {
     myFile = SD.open(fileName4,FILE_WRITE);
     if (myFile) {
@@ -951,8 +950,9 @@ void saveHourlyCounts() {
             if (line.startsWith(dateBuffer)) {
                 rowExists = true;
                 updatedContent += dateBuffer; // Start with the date
-
                 int lastCommaIndex = line.indexOf(",") + 1; // Start after the date
+ 
+                // Parse each value in the line
                 for (int i = 0; i < 24; i++) {
                     int nextCommaIndex = line.indexOf(",", lastCommaIndex);
                     String currentValue = (nextCommaIndex != -1) 
@@ -1007,7 +1007,6 @@ void saveHourlyCounts() {
         Serial.println("Failed to open GateHourlyData.csv for writing.");
     }
 }
-
 
 // Save and Publish Show Totals
 void saveDailyShowSummary() {
@@ -1786,11 +1785,7 @@ void setup() {
     configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
     SetLocalTime();
 
-    // Get NTP time from Time Server 
-    configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
-    SetLocalTime();
-
-    //Set Input Pin
+    //Set Input Pins
     pinMode(magSensorPin, INPUT_PULLDOWN);
     pinMode(beamSensorPin, INPUT_PULLDOWN);
     //pinMode(DHTPIN, INPUT_PULLUP);
