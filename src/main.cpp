@@ -1,8 +1,16 @@
 /*
 Gate Counter by Greg Liebig gliebig@sheboyganlights.org
 Initial Build 12/5/2023 12:15 pm
+Counts vehicles as they exit the park
+Connects to WiFi and updates RTC on Boot
+Uses an Optocoupler to read burried vehicle sensor for Ghost Controls Gate operating at 12V
+Purpose: suppliments Car Counter to improve traffic control and determine park capacity
+Uses an Optocoupler to read burried vehicle sensor for Ghost Controls Gate operating at 12V
+DOIT DevKit V1 ESP32 with built-in WiFi & Bluetooth
 
-Changelog
+## BEGIN CHANGELOG ##
+24.12.19.6 Removed temperature array from average procedure an used the global declared array
+24.12.19.5 Accidentally removed mqtt_client.setCallback(callback) Fixed with a forward declaration
 24.12.19.4 Added save saveHourlyCounts() to countTheCar() and removed save from OTA update
 24.12.19.3 File comparrison between Car Counter and Gate Counter. Synced shared code
 24.12.19.2 fixed warnings, removed unused variables, Changed waitduration to carDetectMS Only errors are with html. Changed carDetectMS default 1200
@@ -62,21 +70,10 @@ Changelog
 24.10.23.3 Fixed File creation errors
 24.10.23.2 Added update/reset check in loop for date changes. Created initSDCard(). 
 24.10.23.1 Updated totals, bug fixes, files ops comparrison to Gate counter  added file ops
-Changed time format YYYY-MM-DD hh:mm:ss 12/13/23
-10/10/24 
-10/15/24
-#define FWVersion "24.10.17.2" 
-Fixed Pin problem. Beam & mag sensor swapped causing the problems
-Purpose: suppliments Car Counter to improve traffic control and determine park capacity
-Counts vehicles as they exit the park
-Connects to WiFi and updates RTC on Boot
-Uses an Optocoupler to read burried vehicle sensor for Ghost Controls Gate operating at 12V
-DOIT DevKit V1 ESP32 with built-in WiFi & Bluetooth
-SPI Pins
-D5 - CS
-D18 - CLK
-D19 - MISO
-D23 - MOSI
+24.10.17.2 added #define FWVersion
+24.10.15.0 Fixed Pin problem. Beam & mag sensor swapped causing the problems. Purpose: suppliments Car Counter to improve traffic control and determine park capacity
+23.12.13.0 Changed time format YYYY-MM-DD hh:mm:ss 12/13/23
+## END CHANGELOG ## 
 */
 
 #include <Arduino.h>
@@ -110,7 +107,7 @@ D23 - MOSI
 #include <queue>  // Include queue for storing messages
 
 // ******************** CONSTANTS *******************
-#define FWVersion "24.12.19.4"   // Firmware Version
+#define FWVersion "24.12.19.6"   // Firmware Version
 #define OTA_Title "Gate Counter" // OTA Title
 #define magSensorPin 32 // Pin for Magnotometer Sensor
 #define beamSensorPin 33  //Pin for Reflective Beam Sensor
@@ -647,6 +644,9 @@ void KeepMqttAlive() {
    start_MqttMillis = millis();
 }
 
+// Forward Declare the callback function
+void callback(char* topic, byte* payload, unsigned int length);
+
 //Connects to MQTT Server
 void MQTTreconnect() {
     static unsigned long lastReconnectAttempt = 0; // Tracks the last reconnect attempt time
@@ -665,6 +665,7 @@ void MQTTreconnect() {
         for (int i = 0; i < mqtt_servers_count; i++) {
             // Set the server for the current configuration
             mqtt_client.setServer(mqtt_configs[i].server, mqtt_configs[i].port);
+            mqtt_client.setCallback(callback);  // required to receive messages
 
             // Create a unique client ID
             String clientId = THIS_MQTT_CLIENT;
@@ -1228,8 +1229,7 @@ void averageHourlyTemp() {
     static int lastPublishedHour = -1;     // Tracks the last hour when data was published
     static int tempReadingsCount = 0;      // Number of valid temperature readings
     static float tempReadingsSum = 0.0;    // Sum of valid temperature readings
-    static float hourlyTemp[24] = {0.0};   // Array to store average temperatures for 24 hours
-
+    
     // Get the current time
     DateTime now = rtc.now();
     int nowHour = now.hour();
