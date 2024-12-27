@@ -9,14 +9,17 @@ def extract_changelog_and_version(source_path):
         content = file.read()
     
     # Extract changelog entries from the comment section
-    changelog_match = re.search(r"/\*[\s\S]*?Changelog([\s\S]*?)\*/", content)
+    changelog_match = re.search(r"## BEGIN CHANGELOG ##([\s\S]*?)## END CHANGELOG ##", content)
     changelog = []
     if changelog_match:
         changelog_lines = changelog_match.group(1).strip().split("\n")
         for line in changelog_lines:
-            match = re.match(r"(\d{2}\.\d{2}\.\d{2}\.\d+)\s+-\s+(.*)", line.strip())
+            print(f"Processing line: {line.strip()}")  # Debugging
+            #match = re.match(r"(\d{2}\.\d{2}\.\d{2}\.\d+)\s+-\s+(.*)", line.strip())
+            match = re.match(r"(\d{2}\.\d{2}\.\d{2}\.\d+)\s+(.*)", line.strip())
             if match:
                 version, description = match.groups()
+                print(f"Matched version: {version}, description: {description}")  # Debugging
                 changelog.append((version, description))
     
     # Extract current FWVersion

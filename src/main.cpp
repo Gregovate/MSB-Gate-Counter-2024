@@ -7,7 +7,9 @@ Uses an Optocoupler to read burried vehicle sensor for Ghost Controls Gate opera
 Purpose: suppliments Car Counter to improve traffic control and determine park capacity
 Uses an Optocoupler to read burried vehicle sensor for Ghost Controls Gate operating at 12V
 DOIT DevKit V1 ESP32 with built-in WiFi & Bluetooth
+*/
 
+/*
 ## BEGIN CHANGELOG ##
 24.12.26.1 Added alarm if beam sensor remains high for more than 3 minutes
 24.12.19.6 Removed temperature array from average procedure an used the global declared array
