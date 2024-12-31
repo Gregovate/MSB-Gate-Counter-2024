@@ -7,8 +7,11 @@ Uses an Optocoupler to read burried vehicle sensor for Ghost Controls Gate opera
 Purpose: suppliments Car Counter to improve traffic control and determine park capacity
 Uses an Optocoupler to read burried vehicle sensor for Ghost Controls Gate operating at 12V
 DOIT DevKit V1 ESP32 with built-in WiFi & Bluetooth
+*/
 
+/*
 ## BEGIN CHANGELOG ##
+24.12.26.1 Added alarm if beam sensor remains high for more than 3 minutes
 24.12.19.6 Removed temperature array from average procedure an used the global declared array
 24.12.19.5 Accidentally removed mqtt_client.setCallback(callback) Fixed with a forward declaration
 24.12.19.4 Added save saveHourlyCounts() to countTheCar() and removed save from OTA update
@@ -107,7 +110,7 @@ DOIT DevKit V1 ESP32 with built-in WiFi & Bluetooth
 #include <queue>  // Include queue for storing messages
 
 // ******************** CONSTANTS *******************
-#define FWVersion "24.12.19.6"   // Firmware Version
+#define FWVersion "24.12.26.1"   // Firmware Version
 #define OTA_Title "Gate Counter" // OTA Title
 #define magSensorPin 32 // Pin for Magnotometer Sensor
 #define beamSensorPin 33  //Pin for Reflective Beam Sensor
@@ -275,6 +278,8 @@ int lastcarCounterCars; // Used to publish in park cars when car counter increas
 int magSensorState, lastmagSensorState ; /* Store states of Mag Sensor*/
 int beamSensorState, lastbeamSensorState ; /* Store states of Beam Sensor */
 unsigned long triggerTime; // Stores the time when sensor 1 is triggered
+unsigned long beamSensorAlarm; // Monitor time Beam Sensor is blocked
+
 
 /***** TIME VARIABLES *****/
 const unsigned long wifi_connectioncheckMillis = 5000; // check for connection every 5 sec
@@ -1348,7 +1353,9 @@ void detectCar() {
     static unsigned long lastCarPassTime = 0;     // Time of the last car detection
     static bool magSensorTriggered = false;       // Tracks if MagSensor was triggered
     static bool systemReadyLogged = false;        // Tracks if "System ready" has been logged
-
+    static bool alarmTriggered = false;            // Tracks if BeamSensor alarm has been triggered
+    static unsigned long lastAlarmPublishTime = 0; // Time of the last alarm message publish
+    unsigned long currentMillis = millis();
 
     // Publish BeamSensor state changes
     if (beamSensorState != lastbeamSensorState) {
@@ -1427,6 +1434,33 @@ void detectCar() {
         publishMQTT(MQTT_COUNTER_LOG,"System ready for next car.");
         systemReadyLogged = true;
     }
+
+    // Beam Sensor Alarm
+    if (beamSensorState == 1) {
+        if (beamSensorHighTime == 0) {
+            beamSensorHighTime = currentMillis; // Start timing
+        } else if (currentMillis - beamSensorHighTime >= 180000) {
+            // If HIGH for over 3 minutes
+            if (!alarmTriggered) {
+                alarmTriggered = true;
+                publishMQTT(MQTT_PUB_HELLO, "ALARM: BeamSensor stuck HIGH for over 3 minutes!");
+                lastAlarmPublishTime = currentMillis; // Record the time of the alarm
+            }
+            // Republish the alarm message every 5 minutes
+            else if (currentMillis - lastAlarmPublishTime >= 300000) {
+                publishMQTT(MQTT_PUB_HELLO, "ALARM: BeamSensor still stuck HIGH.");
+                lastAlarmPublishTime = currentMillis; // Update the time of the last publish
+            }
+        }
+    } else {
+        // BeamSensor is LOW, reset timing and clear the alarm if it was triggered
+        if (alarmTriggered) {
+            publishMQTT(MQTT_PUB_HELLO, "BeamSensor alarm cleared: Sensor is LOW.");
+            alarmTriggered = false;
+        }
+        beamSensorHighTime = 0;
+    }
+
 }
 // END CAR DETECTION
 
