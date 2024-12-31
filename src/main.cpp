@@ -1,5 +1,5 @@
 /*
-Gate Counter by Greg Liebig gliebig@sheboyganlights.org
+Gate Counter by Greg Liebig greg@engrinnovations.com
 Initial Build 12/5/2023 12:15 pm
 Counts vehicles as they exit the park
 Connects to WiFi and updates RTC on Boot
